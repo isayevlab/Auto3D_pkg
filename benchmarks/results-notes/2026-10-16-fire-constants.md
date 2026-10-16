@@ -26,18 +26,17 @@
   0.2.0.post1.dev34+g8092749f9.d20260617, torchani 2.8.4, RDKit 2025.9.6. This record's `env`
   block predates the block's later fields, so the aimnet, torchani and RDKit versions,
   `cuda_visible_devices`, the precision flags and the dirty-tree flag are not in it and are
-  stated here by hand; deviation 4 below says exactly which fields are missing and where each
+  stated here by hand; deviation 3 below says exactly which fields are missing and where each
   hand-stated value comes from.
 - **Precision:** the script calls `configure_torch(TorchConfig(allow_tf32=False))` before it
   touches a model, which is what a production run applies when the user passes nothing: TF32
   off for matmul and for cuDNN, determinism and the cuDNN autotuner left as the process had
-  them. The record does not store the resulting flag values (deviation 4), so none are quoted.
-- **Commit:** `env.commit` `3cc0b08`, `env.ref` `worktree-dedup-tolerance-decision` --
-  the run was launched from the Task 10 worktree, where `measure_fire_constants.py` was
-  unmodified at run time. `git diff 3cc0b08 HEAD -- benchmarks/measure_fire_constants.py` is
+  them. The record does not store the resulting flag values (deviation 3), so none are quoted.
+- **Commit:** `env.commit` `3cc0b08`, where `measure_fire_constants.py` was unmodified at run
+  time. `git diff 3cc0b08 HEAD -- benchmarks/measure_fire_constants.py` is
   empty: the script that produced this record is byte-identical to the one beside this note.
   The shared helper `benchmarks/bench_optimization_perf.py` has since gained the `env` fields
-  listed in deviation 4 and nothing else that this script reads.
+  listed in deviation 3 and nothing else that this script reads.
 - **The two sets** (`Auto3D.foundation.constants.FIRE_CONSTANT_SETS`), five constants plus the
   first-step rule:
 
@@ -50,9 +49,10 @@
   published set -- Bitzek, Koskinen, Gaehler, Moseler and Gumbsch, *Phys. Rev. Lett.* **2006**,
   *97*, 170201, as ASE implements it, which runs no progress test on the first step because the
   velocity is still zero there.
-- **Repeats:** four (the brief's command; its prose says three, see deviation 3). Within one
-  repeat the arm order alternates -- `auto3d` leads the even repeats, `bitzek2006` the odd ones
-  -- so neither set is always the later arm, and an even count leaves each set leading twice.
+- **Repeats:** four, an even count so each set leads the alternation equally often; the script
+  warns on an odd count. Within one repeat the arm order alternates -- `auto3d` leads the even
+  repeats, `bitzek2006` the odd ones -- so neither set is always the later arm, and an even
+  count leaves each set leading twice.
 - **Bench set:** the 24 fixed SMILES of `benchmarks/bench_optimization_perf.py` (8 small, 8
   medium, 8 large; 14 to 53 atoms with hydrogens), each embedded with ETKDGv3 at the shared
   seed into 10 conformers and split into 10 one-conformer copies: 240 conformers per arm, 960
@@ -162,7 +162,8 @@ reading of this clause, is concern 1 below.
 
 ## Decision
 
-The rule, fixed before the run and quoted from the brief:
+The rule, pre-registered in the module docstring of `benchmarks/measure_fire_constants.py`
+before the run:
 
 > adopt the published set only if steps to convergence do not rise beyond the repeat spread, no
 > conformer newly drops or fails to converge, and final energies agree within the engine's
@@ -204,15 +205,17 @@ reproducible rather than marginal.
 written on both engines: 1.309e-01 eV against a 9.93e-03 eV floor for AIMNet2 (13.2x), 1.504e-01
 eV against a 2.10e-03 eV floor for ANI2xt (71.6x), on the pairs where both sets converged. This
 clause is the weakest of the three on this evidence, and the honest reading is that it is not
-independently discriminating here: the Task 10 floor is a same-start bound measured over 24
-single-conformer molecules in different batch arrangements, while this bench set is 240 starting
-geometries, and on it the same set rerun against itself already moves one conformer by
+independently discriminating here: the floor from that note
+(`benchmarks/results-notes/2026-10-16-batch-noise.md`) is a same-start bound measured over 24
+single-conformer molecules in different batch arrangements, while this bench set is 240
+starting geometries, and on it the same set rerun against itself already moves one conformer by
 1.426e-01 eV for ANI2xt (67.9x that engine's floor) and 1.458e-02 eV for AIMNet2 (1.5x). Two
-optimizations that stop in neighboring local minima are bounded by the force gate, not by the
-floor -- the same basin-hop effect `2026-10-09-bucket-policy.md` measured when it found that a
-per-conformer energy rule cannot gate a change that repartitions batches. So clause 3's failure
-is recorded, but it is clauses 1 and 2 that carry the decision, and they fail by margins no
-spread in this record covers.
+optimizations that stop in different local minima differ by the energy between those minima,
+which neither the force gate nor the floor bounds; the floor bounds two stops inside one basin.
+The 1.426e-01 eV within-set move is of that kind -- the basin-hop effect
+`2026-10-09-bucket-policy.md` measured when it found a per-conformer energy rule cannot gate a
+batch repartition. So clause 3's failure is recorded, but it is clauses 1 and 2 that carry the
+decision, and they fail by margins no spread in this record covers.
 
 **Decision: keep the `auto3d` set as the default, on both engines measured.** The rule requires
 all three clauses to hold before the published set is adopted; all three fail for AIMNet2 and
@@ -227,11 +230,11 @@ it as the reason the current set stays.
 **Deviations.**
 
 1. **Another process was on the card during the run, and the record was kept rather than
-   discarded.** The brief's Step 1 says that if another process appears during the run, the JSON
-   is discarded and the run repeated. A watch on card 3 saw a second process -- another of this
-   box's own tools, 12 MiB, no compute -- present for at least one sixty-second sample at
-   09:33:41 UTC, during the AIMNet2 arms. The record's own start and end snapshots list no other
-   process, so the co-tenant arrived and left between them. This record was kept deliberately
+   discarded.** The procedure fixed before the run was that if another process appears during
+   the run, the JSON is discarded and the run repeated. A watch on card 3 saw a second process
+   -- 12 MiB, no compute -- present for at least one sixty-second sample at 09:33:41 UTC, during
+   the AIMNet2 arms. The record's start and end snapshots list no other process. That is the
+   whole of what was logged about it. This record was kept deliberately
    rather than rerun: the quantities the decision reads -- step counts, drop counts and final
    energies -- are properties of the loop's own arithmetic and do not depend on what else holds
    the card, and the wall-clock columns, which are the numbers co-tenancy could move, are
@@ -243,28 +246,27 @@ it as the reason the current set stays.
    `CUDA_VISIBLE_DEVICES` was not set for this run, so that context existed on a card this run
    never used. No snapshot of card 0 exists in the record or elsewhere, so nothing more is
    claimed about it. It does not touch the measurement, which ran entirely on card 3.
-3. **Four repeats, not three.** The brief's Step 1 command says `--reps 4` and its Step 2 prose
-   says "three repeats". Four were run, which is what the alternating arm order needs (an even
-   count leaves each set leading equally often; the script warns on an odd one). The tables and
-   every spread above are over four.
-4. **The record's `env` block predates the fields later records carry.** It holds `gpu`, `torch`,
+3. **The record's `env` block predates the fields later records carry.** It holds `gpu`, `torch`,
    `cuda`, `capability`, `python`, `commit`, `ref` and `auto3d_path` only. It does not hold
    `precision`, `cuda_visible_devices`, `aimnet`, `torchani`, `rdkit` or `dirty_tree`, all of
-   which were added to `bench_optimization_perf.env_block` after this run and are in the Task 10
-   record. The Setup section states those values by hand instead: the aimnet, torchani and
+   which were added to `bench_optimization_perf.env_block` after this run and are in the record
+   beside `benchmarks/results-notes/2026-10-16-batch-noise.md`. The Setup section states those
+   values by hand instead: the aimnet, torchani and
    RDKit versions from the installed packages
    (`python3 -c 'import importlib.metadata as m; print(m.version("aimnet"), m.version("torchani"), m.version("rdkit"))'`),
    `CUDA_VISIBLE_DEVICES` unset, the precision flags named as the call the script makes rather
-   than as recorded values, and the tree state as the Task 10 branch at `3cc0b08` with no
+   than as recorded values, and the tree state as `3cc0b08` with no
    uncommitted change to `measure_fire_constants.py` -- which `git diff 3cc0b08 HEAD` on that
    script confirms is byte-identical to the script beside this note. A hand-stated version is
    weaker evidence than a recorded one: it is the version installed when this note was written,
    and nothing in the record pins it.
-5. **The run was launched from another worktree.** `env.ref` is
-   `worktree-dedup-tolerance-decision` and `env.auto3d_path` points into that worktree's `src`,
-   because the card was shared sequentially with the Task 10 measurement and this run went
-   second from the same checkout. The code under test is the same commit either way.
-6. **Row names are reconstructed, not recorded.** The record stores per-row values in
+4. **The run order on the card.** This run held card 3 from 09:29 to 09:39 UTC. The
+   batch-composition rerun behind
+   `benchmarks/results-notes/2026-10-16-batch-noise.md` came after it: that note records its own
+   card checks at 09:44:14Z and 09:50:49Z. Both ran from the same checkout at commit `3cc0b08`,
+   which is the checkout `env.ref` and `env.auto3d_path` name rather than the branch this note
+   is committed on. The code under test is the same commit either way.
+5. **Row names are reconstructed, not recorded.** The record stores per-row values in
    `build_groups` order and no names, so every molecule named above comes from mapping
    `index // 10` into the flattened small/medium/large order of
    `bench_optimization_perf.SMILES` and `index % 10` onto the conformer. The mapping is
