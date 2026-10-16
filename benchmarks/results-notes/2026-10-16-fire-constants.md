@@ -649,6 +649,14 @@ for engine, arms in record["results"].items():
     print("the eight largest between-set differences (|dE|, signed, repeat, row):")
     for magnitude, signed_d, rep, i in extremes[:8]:
         print(f"  {magnitude:.4f} eV  {signed_d:+.4f}  rep {rep}  row {i}")
+    # How far the top of that ranking runs before the sign changes: the length
+    # of the leading one-signed run, and the rank and magnitude at which the
+    # first row of the other sign appears.
+    first_reversal = next(
+        (k for k, row in enumerate(extremes, 1) if (row[1] < 0) != (extremes[0][1] < 0)), None
+    )
+    print(f"the leading run of one sign is {first_reversal - 1} pairs; the first reversal is at "
+          f"rank {first_reversal} of {len(extremes)}, |dE| {extremes[first_reversal - 1][0]:.3e} eV")
     print(f"mean signed shift against the floor: {statistics.fmean(signed):+.3e} eV "
           f"= {statistics.fmean(signed) / floor:.2f} x the floor")
 
