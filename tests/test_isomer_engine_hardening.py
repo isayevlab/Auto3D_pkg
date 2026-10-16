@@ -630,7 +630,9 @@ def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
 
     That docstring said `max_confs=None` uses `num_heavy_atoms - 1`. It does not:
     `calculate_conformer_count` is
-    `min(max(1, num_heavy, 2*8.481*num_rotatable**1.642), 1000)`, and the
+    `min(max(1, 16 if num_heavy >= 2 else 1, num_heavy,
+    2*8.481*num_rotatable**1.642), 1000)` -- a constant floor of 16 for any
+    molecule with two or more heavy atoms, and the
     rotatable-bond term dominates for anything flexible. Glycerol has 6 heavy
     atoms, so the old docstring implied 5; the real budget is 52 -- a user sizing
     a run off it underestimated by an order of magnitude. The count is taken on

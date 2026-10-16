@@ -309,13 +309,13 @@ class TestNSteps:
         ids=["bare-runtimeerror", "typed-oom", "accelerator-error"],
     )
     def test_fire_step_oom_raises_optimization_error(self, monkeypatch, state, exc_type):
-        """P-m12: a CUDA out-of-memory during the FIRE step itself (not the
+        """A CUDA out-of-memory during the FIRE step itself (not the
         model forward) must surface as ``OptimizationError`` (exit 7), not a
         bare CUDA error -- the same contract ``_run_in_sub_batches`` already
         gives a model-forward OOM.
 
-        GPU review M3 (fix round 1): production can raise this condition as a
-        bare ``RuntimeError``, the typed ``torch.cuda.OutOfMemoryError``, or
+        Production can raise this condition as a bare ``RuntimeError``, the
+        typed ``torch.cuda.OutOfMemoryError``, or
         ``torch.AcceleratorError`` -- all three are ``RuntimeError``
         subclasses whose message names the condition, and ``is_oom`` must
         recognize every one of them, not just the bare-``RuntimeError`` form
@@ -338,7 +338,7 @@ class TestNSteps:
         with pytest.raises(OptimizationError, match="out of memory") as excinfo:
             n_steps(state, n=1, opttol=0.01, patience=100)
 
-        # GPU review M3 gap 4: `from exc` is the only reason the original
+        # `from exc` is the only reason the original
         # CUDA text survives into the `auto3d run` worker's log (it calls
         # `logger.exception`, which formats `__cause__`); assert it is
         # actually chained, not merely that some message was raised.

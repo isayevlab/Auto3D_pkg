@@ -302,9 +302,9 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # (via CalcNumUnspecifiedAtomStereoCenters) would let an
     # unspecified C=C pass silently. With enumerate_isomers=False,
     # "OC(=O)C=CC(=O)O" embeds as fumaric AND maleic acid (~5 kcal/mol apart)
-    # under one species id, and "CC=CC" embeds as cis-2-butene alone with the
-    # trans isomer absent -- in both cases the user gets a molecule they did
-    # not submit, or loses one they did. count_unspecified_stereo is the same
+    # under one species id, and "CC=CC" embeds as a mixture of both geometries
+    # under one species id -- in both cases the user gets a molecule they did
+    # not submit. count_unspecified_stereo is the same
     # predicate RDKitSdfIsomer uses, so the SMILES and SDF paths agree.
     only_aimnet_smiles = []
     dummy_atom_ids: list[str] = []

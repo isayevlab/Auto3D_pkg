@@ -57,6 +57,17 @@ autodoc_default_options = {
     'show-inheritance': True,
 }
 
+# Sphinx writes one stub per autosummary entry into `source/generated/` on every
+# build, and `autosummary_generate_overwrite` (True by default) means it rewrites
+# any stub already sitting there. That holds under any Sphinx invocation -- the
+# documentation workflow's `make -C docs html` and Read the Docs' own
+# `sphinx-build`, which it runs itself against the configuration named in
+# `.readthedocs.yaml` -- and both start from a fresh checkout, so the stubs are
+# always the ones this configuration just generated and a checked-in copy is
+# never read. `source/generated/` is therefore build output and is ignored
+# rather than tracked; the stubs were removed from version control on
+# 2026-10-16, when seven of the tracked copies were stale and three entries had
+# no tracked copy at all.
 autosummary_generate = True
 
 # Napoleon settings for Google/NumPy docstrings

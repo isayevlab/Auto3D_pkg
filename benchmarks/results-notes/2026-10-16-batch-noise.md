@@ -410,12 +410,22 @@ reported from each repeat. They do share the code under test.
    the same `threshold` option) on heavy atoms only and with symmetry
    (`embed_params` sets `onlyHeavyAtomsForRMS` and `useSymmetryForPruning`),
    so a pair that differs only in an O-H orientation is pruned at embedding.
-   Such a pair can reach the duplicate filter only when two distinct
-   heavy-atom embeddings converge during optimization. Measured with Auto3D's
-   own embed parameters, `randomSeed=0xA173D` and 30 conformers requested,
-   under RDKit 2025.09.6: glycerol keeps 9 of 30 embeddings and salbutamol 29
-   of 30, and no kept pair is below 0.3 A heavy-atom RMSD (the minima are
-   0.437 and 0.445 A).
+   The OpenEye omega engine prunes its own pool at that same `threshold`
+   (`omegaOpts.SetFixRMS(threshold)`,
+   `src/Auto3D/engines/isomers/omega.py:181`, in every mode but `macrocycle`,
+   which has no such option), so the statement holds for every isomer engine
+   Auto3D ships rather than for the RDKit paths alone. Such a pair can reach
+   the duplicate filter only when two distinct heavy-atom embeddings converge
+   during optimization. Measured with Auto3D's own embed parameters and 30
+   conformers requested, under RDKit 2025.09.6, at this measurement's own seed
+   (`randomSeed=0xA173D`, the one the bench set is embedded with above; Auto3D
+   itself ships `CONFORMER_RANDOM_SEED = 42`,
+   `src/Auto3D/foundation/constants.py:74`): glycerol keeps 9 of 30 embeddings
+   and salbutamol 29 of 30, and no kept pair is below 0.3 A heavy-atom RMSD
+   (the minima are 0.437 and 0.445 A). Repeated at the shipped seed 42, same
+   RDKit and the same 30 requested: glycerol keeps 7 of 30 with a minimum
+   heavy-atom RMSD of 0.445 A, salbutamol 25 of 30 at 0.473 A -- again no kept
+   pair below 0.3 A.
 3. **ANI2x's floor is quantization, and it scales with |E|.** 1.95e-02 eV is
    exactly five float32 ULPs at |E| ~ 3.9e4 eV, where one ULP is 3.91e-03 eV.
    The ULP doubles with each doubling of |E|, so a value derived from this

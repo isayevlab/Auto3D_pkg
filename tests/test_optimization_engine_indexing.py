@@ -311,8 +311,8 @@ def _reference_n_steps(state, n, opttol, patience, atom_mask=None):
     state["atom_mask"] = atom_mask
 
     optimizer = FIRE(coord)
-    # float("inf"), not 999.0 (GPU review M2, fix round 1): production seeds
-    # this sentinel with infinity (N-m8), and the two must agree for every
+    # float("inf"), not 999.0: production seeds this sentinel with infinity,
+    # and the two must agree for every
     # `fmax`, not merely every `fmax < 999`, or a future parametrization with
     # a step-1 `fmax` at or above 999 would fail this reference for a reason
     # unrelated to the indexing property under test.
@@ -803,6 +803,81 @@ class TestDecomposedHelpers:
 
         quiet = torch.tensor([(2.0 * _STAGGERED_K[i] * 0.1) * (3**0.5) for i in range(4)])
         assert torch.allclose(state["fmax"], quiet, rtol=1e-5)
+
+
+# --------------------------------------------------------------------------- #
+# The same `converged_step` contract, through the whole loop rather than through
+# one `_scatter_back` call.
+# --------------------------------------------------------------------------- #
+
+
+def test_converged_step_distinguishes_a_retired_row_from_a_converged_one():
+    """A row retired as non-finite keeps -1; a row that converged reads its step.
+
+    The unit-level statement is
+    ``test_scatter_back_writes_only_the_active_rows``, which drives one
+    ``_scatter_back`` call directly. This drives the real ``n_steps`` loop, so
+    the two halves of the claim are checked where they can actually disagree:
+    ``_scatter_back`` writes -1 back for a row it leaves active, and a
+    non-finite row must come out of the whole run still carrying that -1
+    rather than the step it failed on, which is the only step count the
+    engine could have stamped it with.
+
+    Both rows are driven from one adapter whose forward is wrapped so that
+    row 0's FORCES -- not its energy -- come back NaN on the second step. That
+    is the path ``_step_active_subset``'s ``torch.isfinite(f)`` term exists
+    for: a non-finite force with a finite energy never reaches the loop
+    through an adapter Auto3D ships (each one's ``forward`` rejects it first),
+    so nothing else would exercise it. Row 1's force vanishes on the third
+    step, so the step it converges on is a number this test chose rather than
+    one FIRE happened to reach.
+    """
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
+    from tests.helpers_adapter import FakeAdapter
+
+    poisoned, survivor = 0, 1  # `_make_state` tags row i with species i.
+    nan_at_step, converge_at_step = 2, 3
+    forwards = {"count": 0}
+
+    def energy_fn(coords, species, charges):
+        # Zero stiffness for the survivor from `converge_at_step` on, so its
+        # force is exactly zero there and the force criterion fires on that
+        # step for a reason this test states.
+        stiff = torch.where(
+            (species[:, 0] == survivor) & (forwards["count"] >= converge_at_step),
+            torch.zeros(len(coords), dtype=coords.dtype),
+            torch.ones(len(coords), dtype=coords.dtype),
+        ).reshape(-1, 1, 1)
+        return (stiff * coords.pow(2)).sum(dim=(1, 2))
+
+    adapter = FakeAdapter(energy_fn=energy_fn)
+    raw = adapter.forward
+
+    def forward(coords, species, charges, atom_mask=None, **kwargs):
+        # Counted BEFORE the energies are computed, so `energy_fn` above reads
+        # the step this call is.
+        forwards["count"] += 1
+        energy, forces = raw(coords, species, charges, atom_mask=atom_mask, **kwargs)
+        if forwards["count"] == nan_at_step:
+            # Tagged by species, not by row position: the active subset is
+            # re-gathered every step, so a positional poison would follow
+            # whichever molecule happens to sit at that index.
+            forces = forces.masked_fill((species[:, 0] == poisoned).reshape(-1, 1, 1), float("nan"))
+        return energy, forces
+
+    adapter.forward = forward
+
+    state = _make_state(BatchedEnergyForce(adapter, 1024), batch=2, natoms=5, seed=19)
+    n_steps(state, n=10, opttol=0.01, patience=100)
+
+    assert state["non_finite"].tolist() == [True, False]
+    assert state["converged_mask"].tolist() == [False, True]
+    assert state["converged_step"].tolist()[poisoned] == -1
+    assert state["converged_step"].tolist()[survivor] == converge_at_step
+    # The premise the two step numbers above rest on: one forward per loop
+    # step (three, the loop breaking once neither row is active) plus the one
+    # `_recompute_final_energy_and_fmax` makes at the end.
+    assert forwards["count"] == converge_at_step + 1
 
 
 # --------------------------------------------------------------------------- #

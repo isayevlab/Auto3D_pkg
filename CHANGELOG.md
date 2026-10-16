@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-10-16
+
 ### Changed
 - The model adapter's `forward`, `energy` and `analytic_hessian` take an
   optional keyword `mults` (the spin multiplicity per molecule, or `None` for
   all singlets); callers written against 3.2.1 and custom NNPs
-  (`forward(coords, species, charges)`) are unaffected.
+  (`forward(species, coords, charges)`) are unaffected.
 - CI: test and documentation jobs install the CPU build of torch and cache pip
   downloads; the documentation link check runs weekly instead of on every pull
   request and can fail again; the documentation build's error gate reads the
@@ -51,6 +53,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two near-degenerate copies about 0.02 eV (0.46 kcal/mol) apart; AIMNet2's
   measured spread sits just inside the tolerance and could land past it on
   another run, while ANI2xt's is a fifth of it.
+- `OptimizationConfig.fire_constants` names which set of FIRE constants the
+  optimizer runs. Two sets are shipped, `auto3d` and `bitzek2006`
+  (`FIRE_CONSTANT_SETS` in `Auto3D.foundation.constants`); the field defaults
+  to `auto3d`, every shipped run uses it, and a name no set answers to is
+  rejected with a `ConfigurationError` naming the field rather than failing
+  inside an optimizer worker. The field is carried in
+  `OptimizationConfig.to_dict()` and reaches the optimizer as
+  `n_steps(..., fire_constants=...)`, so a caller can select the other set by
+  name without editing constants. Nothing changes for a run that does not set
+  it: `auto3d` holds the constants every release has used. The two sets were
+  measured against each other on one NVIDIA L40S for this release (AIMNet2 and
+  ANI2xt, four repeats per arm) and the `auto3d` default was kept, all three
+  clauses of the adoption rule failing on both engines; the measurement, the
+  rule and what it does not cover are written up in
+  `benchmarks/results-notes/2026-10-16-fire-constants.md`.
 
 ### Fixed
 - Tautomer enumeration no longer emits the mirror image of a legitimate
@@ -104,8 +121,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authors' deposited data) and which parts of the expression are Auto3D's own.
   A small rotor-free molecule with an unspecified stereo element and
   stereoisomer enumeration disabled is now more likely to embed both
-  configurations among its conformers (2-butene does from 5 requests up; it
-  requested 4 before), so a `k=1` result for such an input can change; the
+  configurations among its conformers (2-butene does from 5 requests up under
+  RDKit 2025.09.6, and it requested 4 before; RDKit 2026.9.1 already mixes at
+  4), so a `k=1` result for such an input can change; the
   existing warning about unspecified stereo already covers it.
 - The optimizer releases the CUDA cache once per chunk instead of after every
   size bucket. The per-bucket release was measured on and off against the

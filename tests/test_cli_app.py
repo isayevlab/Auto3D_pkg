@@ -122,7 +122,7 @@ def test_models_info_ani2xt_names_the_no_repulsion_training(runner):
 
 
 def test_models_info_works_without_aimnet(runner, monkeypatch):
-    """CHANGELOG (Unreleased) claims ``auto3d models info`` works without
+    """CHANGELOG (3.1.1) claims ``auto3d models info`` works without
     aimnet installed, and nothing exercised that claim.
 
     ``execute_models_info`` (``src/Auto3D/presentation/cli/commands/models.py``)

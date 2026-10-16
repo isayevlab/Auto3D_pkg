@@ -370,7 +370,10 @@ Two measured cases, both with ``enumerate_isomer=False``:
        maleic acid, ~5 kcal/mol apart, under one species id
      - no
    * - ``CC=CC``
-     - ``C/C=C\C`` only -- cis-2-butene; the trans isomer is absent
+     - ``C/C=C\C`` only -- cis-2-butene; the trans isomer is absent. Measured
+       at the 4 conformers 3.0 requested for this molecule, under RDKit
+       2025.09.6; from 3.2.2 the default budget requests 16 for it and both
+       geometries come out
      - no
 
 The conformers Auto3D emits are unchanged: the fix makes the condition
@@ -767,11 +770,11 @@ A legacy dict config is unaffected -- ``ensemble_opt`` reads only
 leftover ``"energy_tol"`` key is ignored rather than rejected. (From 3.2.1,
 ``OptimizationConfig.to_dict()`` names this key ``convergence_threshold``
 instead; a hand-written parameter dict may keep ``opttol`` until 4.0, which
-emits a ``DeprecationWarning`` -- see the ``Unreleased`` section of
+emits a ``DeprecationWarning`` -- see the ``[3.2.1]`` section of
 ``CHANGELOG.md``.) The unrelated ``energy_tol`` argument of
 ``Auto3D.filtering`` (the duplicate-conformer energy tolerance) is a
 different parameter, and this migration does not touch it. It did change
-later: from the ``Unreleased`` section of ``CHANGELOG.md``,
+later: from the ``[3.2.2]`` section of ``CHANGELOG.md``,
 ``filter_conformers`` and ``filter_unique_optimized`` accept ``energy_tol``
 as a keyword (defaulting, as before, to
 ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``), and Auto3D's
