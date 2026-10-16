@@ -469,11 +469,11 @@ def tolerance_check(summary: dict) -> dict:
 def limit_groups(groups: dict[str, list], limit: int | None) -> dict[str, list]:
     """Keep only the first ``limit`` molecules of each size group.
 
-    Per group, where the sibling scripts' ``--limit`` cuts the flattened set:
-    the three arrangements compared here are the whole set, one batch per size
-    group and the whole set reversed, and a flattened limit small enough to be
-    quick would leave one group, in which the first two arrangements are the
-    same batch.
+    Per group, where ``measure_fire_constants.py``'s ``--limit`` cuts the
+    flattened set: the three arrangements compared here are the whole set, one
+    batch per size group and the whole set reversed, and a flattened limit
+    small enough to be quick would leave one group, in which the first two
+    arrangements are the same batch.
     """
     if limit is None:
         return groups

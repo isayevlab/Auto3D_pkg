@@ -6,10 +6,10 @@
   `benchmarks/results-notes/2026-10-16-empty-cache.json`, a byte-for-byte copy of the file the
   run wrote. **The script is removed in the same change as the switch it measured**, so every
   reference to it below names the program that produced this record rather than a file in the
-  tree: it is readable at `3cc0b08`, the commit the record's `env` block names, and at any
-  commit of the default branch before this change landed. It drove the arms by flipping the
-  class attribute named in the next bullet, so once that attribute was removed the script could
-  not run at all (concern 3).
+  tree: it is readable at `3cc0b08`, the commit the record's `env` block names, and on the
+  default branch from `17bf485`, which added it, through `0ac0ae5`, the commit this change is
+  based on. It drove the arms by flipping the class attribute named in the next bullet, so once
+  that attribute was removed the script could not run at all (concern 3).
 - **What is compared.** `Auto3D.engines.batch_opt.batchopt.Optimizer._optimize_all` released the
   CUDA cache after every size bucket, gated by the class attribute
   `Optimizer.EMPTY_CACHE_PER_BUCKET` (default `True`); `Optimizer.run` releases it once more at
@@ -26,9 +26,10 @@
 
   The `--out` above is where the committed copy lives; the run's own output path was a scratch
   directory, and the file was copied from it, with `cmp` reporting no difference and both files
-  at md5 `20c45efa6f0b35ea2d2f98c4c3098c61`. Exit status 0; the record carries `"smoke": false`,
-  so these are device numbers, not the script's CPU plumbing check, and `"limit": null`, so the
-  bench set was not truncated.
+  at md5 `20c45efa6f0b35ea2d2f98c4c3098c61`. Exit status 0 -- from the run log, which the
+  launcher echoed it into, and not from the record, which has no field for it. The record does
+  carry `"smoke": false`, so these are device numbers and not the script's CPU plumbing check,
+  and `"limit": null`, so the bench set was not truncated.
 - **Card:** NVIDIA L40S, driver 595.71.05, compute capability 8.9, physical card 5 -- the index
   `nvidia-smi` addresses. `CUDA_VISIBLE_DEVICES=5` with `--device cuda:0` means the process could
   see exactly one card, so the record's `"device": "cuda:0"` is an index into that one card and
@@ -48,7 +49,11 @@
   card during the run saw one other process for at least one sample; see **Deviations and
   concerns**, deviation 3.
 - **Versions:** torch 2.9.1+cu128, CUDA 12.8, compute capability 8.9, Python 3.13.12 (`env`);
-  aimnet 0.2.0.post1.dev34+g8092749f9.d20260617, torchani 2.8.4, RDKit 2025.9.6. This record's
+  aimnet 0.2.0.post1.dev34+g8092749f9.d20260617, torchani 2.8.4, RDKit 2025.9.6. torchani's
+  compiled CUDA extensions were **not** installed: the run log carries that package's warning
+  naming `cuaev`, `mnp` and `cell_list` as unavailable, so both ANI2xt arms ran the pure-torch
+  AEV path. That sets this engine's absolute memory level, which both of its arms share, and
+  the rule reads a within-engine difference between them (deviation 5). This record's
   `env` block predates the block's later fields, so the aimnet, torchani and RDKit versions,
   `cuda_visible_devices`, the precision flags and the dirty-tree flag are not in it and are
   stated here by hand; deviation 1 says which fields are missing and where each hand-stated
@@ -67,14 +72,14 @@
   does, and wall clock is a sensitivity line here that no part of the decision reads.
 - **Commit:** `env.commit` `3cc0b08`.
   `git diff 3cc0b08 0ac0ae5 -- benchmarks/measure_empty_cache.py` is empty -- `0ac0ae5` being the
-  commit this change builds on, the last one that still holds the script -- so the script that
-  produced this record is byte-identical to the one this change removes. A diff
-  between two commits cannot show that the run's working tree was clean; what supports that for
-  this script is the record's own `env` block, which lacks the fields the then-uncommitted edit
-  to `benchmarks/bench_optimization_perf.py` added (deviation 1) -- so that edit was not yet in
-  the tree when the record was written, and the shared helper this script imports was the
-  committed one. The helper has since gained those `env` fields and nothing else that this
-  script reads.
+  commit this change is based on, which still holds the script; the default branch carried it
+  from `17bf485` to there (Setup) -- so the script that produced this record is byte-identical
+  to the one this change removes. A diff between two commits cannot show that the run's working
+  tree was clean; what supports that for this script is the record's own `env` block, which
+  lacks the fields the then-uncommitted edit to `benchmarks/bench_optimization_perf.py` added
+  (deviation 1) -- so that edit was not yet in the tree when the record was written, and the
+  shared helper this script imports was the committed one. The helper has since gained those
+  `env` fields and nothing else that this script reads.
 - **Code under test:** `git diff 3cc0b08 0ac0ae5 -- src/Auto3D/engines/batch_opt/batchopt.py` is
   also empty, so the gate, the per-bucket call and the per-chunk call measured here are, to the
   byte, the ones this note decides on and the ones this change edits.
@@ -140,10 +145,13 @@ so which allocations differ at the peak moment cannot be read from it, and no me
 asserted here. It is a fraction of a MiB, against the 10.0 MiB reserved-memory difference in the
 same rows.
 
-**Where the reserved difference sits.** The whole of the 10.0 MiB reserved difference is
+**Where the reserved difference sits.** Nearly all of the 10.0 MiB reserved difference is
 allocator headroom: `reserved - allocated` falls by 9.802 MiB (AIMNet2) and 9.971 MiB (ANI2xt)
-from the `on` arm to the `off` arm, against allocated peaks that are flat to a fraction of a
-MiB.
+from the `on` arm to the `off` arm, the remainder being the 0.198 MiB and 0.029 MiB of allocated
+peak above. Read that as a difference of peaks and not as a gap that existed at any instant: the
+reserved and allocated peaks are maxima taken independently over the run and need not fall at
+the same moment, so `reserved - allocated` is not necessarily the headroom standing at either
+of them.
 
 ## What this measurement exercises
 
@@ -175,16 +183,16 @@ MiB.
 
 ## Decision
 
-The rule, pre-registered in the module docstring of `benchmarks/measure_empty_cache.py` at
-`3cc0b08`, the commit the record names, before the run -- and unchanged in that docstring from
-there to the commit this change builds on (the Commit bullet's diff), which is where the script
-is readable now that this change removes it (Setup):
+The rule in the condensed form the design that parked this measurement states it in:
 
 > remove the per-bucket call and the switch only if, per engine, the off arm's peak reserved
 > memory is not higher than the on arm's beyond the repeat spread (20 MiB floor) and no
 > additional allocator retries or out-of-memory events appear
 
-The docstring states the same rule at length, including what the floor is for:
+Its pre-registered form is the module docstring of `benchmarks/measure_empty_cache.py` at
+`3cc0b08`, the commit the record names -- written there before the run and unchanged in that
+docstring through `0ac0ae5`, where the script is readable now that this change removes it
+(Setup, Commit). That form states the same rule at length, including what the floor is for:
 
 > the per-bucket call may be removed only if, for each engine and across all repeats, the `off`
 > arm's peak *reserved* memory is not higher than the `on` arm's beyond the repeat spread (with
@@ -225,9 +233,12 @@ retry path -- see **What this measurement exercises** on what that does not cove
 clauses hold for AIMNet2 and both hold for ANI2xt, so the rule's condition for removal is met.
 `Optimizer._optimize_all` no longer releases the CUDA cache after each size bucket and
 `Optimizer.EMPTY_CACHE_PER_BUCKET` is gone with it; the release in `Optimizer.run`, after the
-chunk's output is written, is untouched and is now the only one the optimizer makes. The two
-tests that covered the switch's two positions become one test asserting that a two-bucket run
-releases the cache exactly once, at the end of the chunk. The script goes with the switch, for
+chunk's output is written, is untouched and is now the only unconditional release `Optimizer`
+itself makes. It is not the only release a run can make: `BatchedEnergyForce` releases the cache
+on its out-of-memory retry path (`src/Auto3D/engines/batch_opt/model_wrapper.py`), reached from
+inside the bucket loop, and that release is unchanged here. The two tests that covered the
+switch's two positions become one test asserting that a two-bucket run releases the cache
+exactly once, at the end of the chunk. The script goes with the switch, for
 the reason concern 3 gives, and so does the test that parsed it. The CHANGELOG's unreleased
 section records both halves and cites this note: a `### Fixed` entry for the release policy and
 a `### Removed` entry for the script.
@@ -289,10 +300,16 @@ a `### Removed` entry for the script.
    committed on, both at `3cc0b08`; the Commit and Code-under-test bullets are what establish
    that the script and the optimizer are the same bytes either way. The run's `--out` was a
    scratch path and the committed copy is byte-identical to it (Setup, Command).
-5. **The run log is not committed.** Three facts above are read from it and not from the record:
-   that no occupancy warning was printed, the single-card device listing with the card's 44 GiB,
-   and the 130/110 split of the two buckets. The record carries the bucket count, the two card
-   snapshots and every number in the tables.
+5. **The run log is not committed.** Five facts above are read from it and not from the record:
+   that no occupancy warning was printed; the exit status 0, which the record has no field for;
+   the single-card device listing with the card's 44 GiB; the 130/110 split of the two buckets;
+   and torchani's warning that its compiled CUDA extensions (`cuaev`, `mnp`, `cell_list`) are
+   not installed, so both ANI2xt arms ran that package's pure-torch AEV path. The last one sets
+   where this engine's absolute memory numbers sit, and it is not in the record either; what
+   carries the decision is the difference between two arms that share it, within one engine, so
+   an install with those extensions built would move both arms' level and is simply not what was
+   measured. The record carries the bucket count, the two card snapshots and every number in the
+   tables.
 
 **Concerns.**
 

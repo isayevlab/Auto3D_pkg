@@ -71,7 +71,7 @@ def test_measure_batch_noise_builds_its_parser_through_the_shared_helper():
     spelled once, in ``bench_optimization_perf.bench_arg_parser``, so two runs
     of two scripts are invoked alike. (What ``--limit`` counts is per script:
     the first N molecules of each size group here, the first N of the flattened
-    bench set in the sibling scripts, which is why its help text is a
+    bench set in ``measure_fire_constants.py``, which is why its help text is a
     parameter.) A local ``add_argument`` for one of them would be free to drift
     -- a different default, a missing type -- with nothing to catch it until
     someone compared two records that were not measured the same way.

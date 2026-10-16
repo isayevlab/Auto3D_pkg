@@ -128,7 +128,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   record and the decision it produced are kept in
   `benchmarks/results-notes/2026-10-16-empty-cache.md` and the JSON beside it,
   and the script itself remains readable in the history at the commit that
-  record names. The other benchmark scripts are unaffected.
+  record names. In the other benchmark files, only their cross-references to
+  the removed script changed (`benchmarks/bench_optimization_perf.py`,
+  `benchmarks/measure_fire_constants.py`, `benchmarks/measure_batch_noise.py`);
+  no other benchmark script's behavior changes.
 
 ## [3.2.1] - 2026-10-11
 

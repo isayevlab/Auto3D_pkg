@@ -487,12 +487,15 @@ class Optimizer:
                 non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
         # No per-bucket empty_cache() here: the release in run(), after the
-        # chunk's output is written, is the only one the optimizer makes. A
-        # release after every size bucket was measured on and off against this
-        # production path and lowered neither peak reserved memory nor the
-        # allocator's retry and out-of-memory counts, on either AIMNet2 or
-        # ANI2xt (one NVIDIA L40S, 240 conformers in two size buckets, four
-        # repeats): ``benchmarks/results-notes/2026-10-16-empty-cache.md``,
+        # chunk's output is written, is the only unconditional one this class
+        # makes. BatchedEnergyForce still releases the cache on its
+        # out-of-memory retry path (model_wrapper.py), reached from inside this
+        # loop, and that release is unchanged. A release after every size
+        # bucket was measured on and off against this production path and
+        # lowered neither peak reserved memory nor the allocator's retry and
+        # out-of-memory counts, on either AIMNet2 or ANI2xt (one NVIDIA L40S,
+        # 240 conformers in two size buckets, four repeats):
+        # ``benchmarks/results-notes/2026-10-16-empty-cache.md``,
         # whose "What this measurement exercises" bounds what that covers --
         # two size buckets, so one release beyond the per-chunk one, and no
         # memory pressure in either arm.
