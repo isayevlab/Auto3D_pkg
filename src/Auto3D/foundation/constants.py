@@ -170,8 +170,8 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # The three bundled engines were measured on 2026-10-16 (three batch
 # arrangements, three repeats, one idle card, each largest case geometry-checked
 # as one minimum reached twice): floors 9.93e-3 eV (AIMNet2), 2.10e-3 eV
-# (ANI2xt) and 1.95e-2 eV (ANI2x), i.e. this tolerance stands 1.01x, 4.75x and
-# 0.51x above them. Per-engine values were computed from those floors --
+# (ANI2xt) and 1.95e-2 eV (ANI2x), i.e. the ratio tolerance / floor is 1.01,
+# 4.75 and 0.51. Per-engine values were computed from those floors --
 # 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
 # adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
 # hour apart, so five times the largest of three draws is a draw and not a

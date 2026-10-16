@@ -79,9 +79,11 @@ class BaseModelAdapter(ABC, nn.Module):
     #: ``DEFAULT_DUPLICATE_ENERGY_TOL``, and none overrides it: the
     #: 2026-10-16 measurement of the three bundled engines
     #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
-    #: that moved between two runs an hour apart, and every per-engine value
-    #: it computed was at or above kT at 298 K, where the rotamer pairs the
-    #: energy half of the duplicate test protects live. The attribute is the
+    #: that moved between two runs an hour apart, and the per-engine values it
+    #: computed for AIMNet2 and ANI2x (0.050 and 0.098 eV) were 1.9 and 3.8
+    #: times kT at 298 K, where the rotamer pairs the energy half of the
+    #: duplicate test protects live; the third (ANI2xt, 0.011 eV) is within
+    #: rounding of this constant. The attribute is the
     #: hook for an adapter that HAS a measurement to apply -- a custom NNP, or
     #: a future backend -- and overriding it changes only that adapter's runs.
     duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL

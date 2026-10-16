@@ -44,10 +44,10 @@ class ANI2xtAdapter(BaseModelAdapter):
     # the shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. The 2026-10-16 measurement
     # put this engine's spread between two optimizations of one minimum at
     # 2.10e-03 eV (0.048 kcal/mol), a fifth of that constant and the steadiest
-    # of the three engines, so there is nothing a per-engine value here would
-    # change except to widen the window past the O-H and N-H rotamer
-    # splittings the energy half of the duplicate test exists to keep apart.
-    # See ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+    # of the three engines -- its two readings that day agree to 3% -- and
+    # five times it rounds to 0.011 eV, within rounding of the constant, so a
+    # per-engine value here would change nothing. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2xt adapter.

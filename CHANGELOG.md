@@ -38,16 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   make the tolerance engine-aware, which asked for 0.050, 0.011 and 0.098 eV
   (1.15, 0.25 and 2.26 kcal/mol); none was adopted, because the floors moved
   by 1.4x and 2.5x between two runs an hour apart and because a window at or
-  above kT (0.0257 eV at 298 K) merges the O-H and N-H rotamer pairs the
-  energy half of the test exists to keep apart. The measurement and that
-  reading are written up in
+  above kT (0.0257 eV, 0.59 kcal/mol, at 298 K) merges the O-H and N-H
+  rotamer pairs the energy half of the test exists to keep apart. The
+  measurement and that reading are written up in
   `benchmarks/results-notes/2026-10-16-batch-noise.md`.
   Known limitation: ANI2x's measured spread is twice the tolerance (its total
-  energy is a float32 quantity, quantized at 3.91e-3 eV near the largest of
-  these molecules), so a true duplicate can survive as two near-degenerate
-  copies about 0.02 eV apart; AIMNet2's measured spread sits just inside the
-  tolerance and could land past it on another run, while ANI2xt's is a fifth
-  of it.
+  energy is a float32 quantity, quantized at 3.91e-3 eV (0.090 kcal/mol)
+  near the largest of these molecules), so a true duplicate can survive as
+  two near-degenerate copies about 0.02 eV (0.45 kcal/mol) apart; AIMNet2's
+  measured spread sits just inside the tolerance and could land past it on
+  another run, while ANI2xt's is a fifth of it.
 
 ### Fixed
 - Tautomer enumeration no longer emits the mirror image of a legitimate

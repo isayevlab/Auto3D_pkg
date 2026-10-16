@@ -372,10 +372,11 @@ class TestTheShippedAdaptersKeepTheSharedDuplicateEnergyTolerance:
     sets one: the 2026-10-16 measurement
     (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors that
     moved by 1.4x and 2.5x between two runs an hour apart, so five times the
-    largest of three draws is not a bound on the quantity, and every value
-    that rule produced is at or above kT at 298 K (0.0257 eV), where the O-H
-    and N-H rotamer splittings the energy half of the duplicate test exists to
-    protect live.
+    largest of three draws is not a bound on the quantity, and the values that
+    rule produced for AIMNet2 and ANI2x (0.050 and 0.098 eV) are 1.9 and 3.8
+    times kT at 298 K (0.0257 eV), where the O-H and N-H rotamer splittings
+    the energy half of the duplicate test exists to protect live. ANI2xt's
+    (0.011 eV) is within rounding of the constant.
 
     Both halves are asserted, because they fail differently: the resolved
     value is what a run deduplicates with, and the absence of a class-level
