@@ -563,10 +563,13 @@ agree to at most 0.1023 A heavy-atom RMSD, well inside the 0.3 A duplicate
 threshold, so they are the same structure by the duplicate filter's own
 criterion (heavy-atom RMSD) reached more than once. That criterion ignores
 hydrogens, so a difference in a hydroxyl or amine hydrogen orientation is not
-excluded -- no all-atom RMSD was compared. Of the molecules checked only
-salbutamol has such a rotor at all, and if its largest case were a rotamer
-pair rather than one structure, AIMNet2's largest spread would be the next
-case, 4.0e-3 eV, which changes nothing about the tolerance below.
+excluded -- no all-atom RMSD was compared. Of the molecules checked, only
+salbutamol carries hydroxyl or amine hydrogens whose alternative orientations
+are close in energy; the others have none, or only carboxylic and amide
+hydrogens whose rotamers lie several kcal/mol apart. If salbutamol's largest
+case were a rotamer pair rather than one structure, AIMNet2's largest spread
+would be the next case, 4.0e-3 eV, which changes nothing about the tolerance
+below.
 
 Duplicate detection is where that matters. Two conformers count as duplicates
 only when they are the same compound, their heavy-atom RMSD is under

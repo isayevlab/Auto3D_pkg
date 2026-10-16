@@ -21,8 +21,8 @@ cannot be read separately.
   adapters implement it (via
   :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies
   working defaults for every member). Users never do. Enforced by
-  :func:`missing_adapter_members`, which both of its consumers that accept an
-  adapter from outside consult on construction:
+  :func:`missing_adapter_members`, which the two call sites that check an
+  adapter structurally consult on construction:
   :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` and
   :class:`Auto3D.entry.ASE.thermo.calculator.Calculator`.
 

@@ -204,9 +204,9 @@ syn/anti splitting is several kcal/mol; `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=
 (two ANI2x rows, including its floor) has a carboxylic O-H and an amide N-H,
 both of them several kcal/mol; and `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1`
 (ANI2x rep 2) carries sulfonamide and urea N-H on planar conjugated nitrogen,
-which has no hydrogen-only degree of freedom. Every one of those is orders
-above the spreads in the table, so for those rows a rotamer pair is not a
-candidate explanation.
+which has no hydrogen-only degree of freedom. Each of those costs several
+kcal/mol, against spreads of 0.45 kcal/mol and below, so for those rows a
+rotamer pair is not a candidate explanation.
 
 The exception is **AIMNET's floor row**, `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1`
 (salbutamol): three O-H and a secondary amine N-H, which is where hydroxyl
