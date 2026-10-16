@@ -49,11 +49,13 @@
   card during the run saw one other process for at least one sample; see **Deviations and
   concerns**, deviation 3.
 - **Versions:** torch 2.9.1+cu128, CUDA 12.8, compute capability 8.9, Python 3.13.12 (`env`);
-  aimnet 0.2.0.post1.dev34+g8092749f9.d20260617, torchani 2.8.4, RDKit 2025.9.6. torchani's
-  compiled CUDA extensions were **not** installed: the run log carries that package's warning
-  naming `cuaev`, `mnp` and `cell_list` as unavailable, so both ANI2xt arms ran the pure-torch
-  AEV path. That sets this engine's absolute memory level, which both of its arms share, and
-  the rule reads a within-engine difference between them (deviation 5). This record's
+  aimnet 0.2.0.post1.dev34+g8092749f9.d20260617, torchani 2.8.4, RDKit 2025.9.6. The run log
+  carries torchani's warning that its compiled extensions `cuaev`, `mnp` and `cell_list` are not
+  installed. Auto3D asks for none of them: `src/Auto3D/engines/models/ani2xt.py` builds
+  `torchani.AEVComputer(radial, angular, num_species)` with no `strategy` and no `neighborlist`
+  argument, so the pure-torch AEV path and the all-pairs neighbor list are requested
+  unconditionally. Their absence therefore changed nothing about which path ran or the memory
+  level that path sets, and both ANI2xt arms share that level (deviation 5). This record's
   `env` block predates the block's later fields, so the aimnet, torchani and RDKit versions,
   `cuda_visible_devices`, the precision flags and the dirty-tree flag are not in it and are
   stated here by hand; deviation 1 says which fields are missing and where each hand-stated
@@ -303,13 +305,14 @@ a `### Removed` entry for the script.
 5. **The run log is not committed.** Five facts above are read from it and not from the record:
    that no occupancy warning was printed; the exit status 0, which the record has no field for;
    the single-card device listing with the card's 44 GiB; the 130/110 split of the two buckets;
-   and torchani's warning that its compiled CUDA extensions (`cuaev`, `mnp`, `cell_list`) are
-   not installed, so both ANI2xt arms ran that package's pure-torch AEV path. The last one sets
-   where this engine's absolute memory numbers sit, and it is not in the record either; what
-   carries the decision is the difference between two arms that share it, within one engine, so
-   an install with those extensions built would move both arms' level and is simply not what was
-   measured. The record carries the bucket count, the two card snapshots and every number in the
-   tables.
+   and torchani's warning that its compiled extensions (`cuaev`, `mnp`, `cell_list`) are not
+   installed. The last one selected nothing: `src/Auto3D/engines/models/ani2xt.py` builds
+   `torchani.AEVComputer(radial, angular, num_species)` with no `strategy` and no
+   `neighborlist` argument, so Auto3D requests the pure-torch AEV path and the all-pairs
+   neighbor list unconditionally, and the extensions' absence changed neither the path that ran
+   nor the memory level that path sets. Both ANI2xt arms share that level, and what carries the
+   decision is the difference between them, within one engine. The record carries the bucket
+   count, the two card snapshots and every number in the tables.
 
 **Concerns.**
 
