@@ -21,8 +21,10 @@ cannot be read separately.
   adapters implement it (via
   :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies
   working defaults for every member). Users never do. Enforced by
-  :func:`missing_adapter_members`, which
-  :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` consults on construction.
+  :func:`missing_adapter_members`, which both of its consumers that accept an
+  adapter from outside consult on construction:
+  :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` and
+  :class:`Auto3D.entry.ASE.thermo.calculator.Calculator`.
 
 Contract B is what every model *invocation* inside Auto3D goes through, and
 that is deliberate: a thermochemistry path keyed on an engine-name string, or
@@ -50,6 +52,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import torch
 
+from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 from Auto3D.foundation.exceptions import ModelLoadError
 
 #: Human-readable form of the contract, quoted in every rejection message.
@@ -211,7 +214,8 @@ class ModelAdapter(Protocol):
 
     This Protocol IS ``@runtime_checkable``, and unlike before it is actually
     consulted: :func:`missing_adapter_members` is called by
-    :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce`. Be clear about what that
+    :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` and by
+    :class:`Auto3D.entry.ASE.thermo.calculator.Calculator`. Be clear about what that
     buys, because overselling it is how the decorator became decorative in the
     first place: a presence check catches a **category error** (a raw
     ``nn.Module``, a third-party calculator, an engine-name string), NOT a
@@ -485,10 +489,12 @@ def duplicate_energy_tol_of(adapter: Any) -> float:
     How far two optimizations of one minimum can land apart at the force gate
     is a property of the backend, so an adapter is where that number lives:
     :class:`Auto3D.engines.models.adapter.BaseModelAdapter` supplies
-    ``duplicate_energy_tol`` and a backend may override it with a value
-    measured for itself. None of the bundled adapters does, so Auto3D's own
-    engines are deduplicated with the shared constant (see that attribute and
-    ``benchmarks/results-notes/2026-10-16-batch-noise.md``). The member is
+    ``duplicate_energy_tol`` and an adapter class can carry its own value
+    instead. None of the bundled adapters does, so Auto3D's own engines are
+    deduplicated with the shared constant (see that attribute and
+    ``benchmarks/results-notes/2026-10-16-batch-noise.md``). The value is read
+    off the adapter object this is called with, so it is an adapter-class
+    attribute and nothing else. The member is
     deliberately NOT part of :class:`ModelAdapter` and
     is never required of an implementer -- a structural adapter (a test
     double, or anything written against the documented interface) is a
@@ -508,8 +514,6 @@ def duplicate_energy_tol_of(adapter: Any) -> float:
         ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL`` when it
         has none.
     """
-    from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
-
     return float(getattr(adapter, "duplicate_energy_tol", DEFAULT_DUPLICATE_ENERGY_TOL))
 
 

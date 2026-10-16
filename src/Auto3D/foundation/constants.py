@@ -168,18 +168,21 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # adapter that has a measurement to apply.
 #
 # The three bundled engines were measured on 2026-10-16 (three batch
-# arrangements, three repeats, one idle card, each largest case geometry-checked
-# as one minimum reached twice): floors 9.93e-3 eV (AIMNet2), 2.10e-3 eV
+# arrangements, three repeats, one idle card, each largest case checked as the
+# same structure by the duplicate filter's own heavy-atom criterion, which
+# cannot see a hydrogen-rotor difference): floors 9.93e-3 eV (AIMNet2), 2.10e-3 eV
 # (ANI2xt) and 1.95e-2 eV (ANI2x), i.e. the ratio tolerance / floor is 1.01,
 # 4.75 and 0.51. Per-engine values were computed from those floors --
 # 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
 # adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
 # hour apart, so five times the largest of three draws is a draw and not a
-# bound on the quantity. And a window at or above kT (0.0257 eV at 298 K)
-# overlaps the O-H and N-H rotamer splittings the energy half of this test
-# exists to protect -- the AIMNet2 and ANI2x values are 1.9 and 3.8 kT, while
-# ANI2xt's 0.011 eV is 0.43 kT and within rounding of this constant -- which
-# would buy false positives (a merged rotamer, silent and irreversible) to
+# bound on the quantity. And a window of that width overlaps the hydroxyl and
+# amine rotamer splittings the energy half of this test exists to protect,
+# roughly 0.5 to 1.5 kcal/mol: the AIMNet2 value (1.15 kcal/mol, 1.9 kT at
+# 298 K) sits inside that range and the ANI2x one (2.26 kcal/mol, 3.8 kT)
+# above it, while ANI2xt's 0.011 eV is 0.43 kT and within rounding of this
+# constant -- which would buy false positives (a merged rotamer, silent and
+# irreversible) to
 # reduce false negatives that are intrinsic to any finite window and that a
 # user can see and correct. The measurement, both samples and that reading:
 # benchmarks/results-notes/2026-10-16-batch-noise.md.

@@ -80,12 +80,13 @@ class BaseModelAdapter(ABC, nn.Module):
     #: 2026-10-16 measurement of the three bundled engines
     #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
     #: that moved between two runs an hour apart, and the per-engine values it
-    #: computed for AIMNet2 and ANI2x (0.050 and 0.098 eV) were 1.9 and 3.8
-    #: times kT at 298 K, where the rotamer pairs the energy half of the
-    #: duplicate test protects live; the third (ANI2xt, 0.011 eV) is within
-    #: rounding of this constant. The attribute is the
-    #: hook for an adapter that HAS a measurement to apply -- a custom NNP, or
-    #: a future backend -- and overriding it changes only that adapter's runs.
+    #: computed for AIMNet2 and ANI2x (0.050 and 0.098 eV, 1.9 and 3.8 times
+    #: kT at 298 K) reach into and past the hydroxyl-rotamer splittings the
+    #: energy half of the duplicate test protects, roughly 0.5 to 1.5
+    #: kcal/mol; the third (ANI2xt, 0.011 eV) is within rounding of this
+    #: constant. The attribute is here so that an adapter
+    #: class CAN carry its own value, for a backend whose spread has been
+    #: measured; setting it on a subclass changes only that adapter's runs.
     duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL
 
     def __init_subclass__(cls, **kwargs: Any) -> None:

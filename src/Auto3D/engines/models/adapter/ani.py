@@ -173,8 +173,10 @@ class ANI2xAdapter(BaseModelAdapter):
     # that has a known cost: its total energy is itself a float32 quantity,
     # quantized at 3.91e-03 eV near |E| ~ 3.9e4 eV, and the 2026-10-16
     # measurement saw two optimizations of one minimum land five of those
-    # steps apart (1.95e-02 eV, 0.45 kcal/mol, checked as one basin at 0.10 A
-    # heavy-atom RMSD), so such a pair survives deduplication as two
+    # steps apart (1.95e-02 eV, 0.45 kcal/mol; its arrangements agree to at
+    # most 0.1023 A heavy-atom RMSD, and that molecule's only hydrogen-only
+    # rotors cost several kcal/mol, so it is one basin), so such a pair
+    # survives deduplication as two
     # near-degenerate copies -- which is visible in the output and correctable,
     # unlike a merged rotamer, and preferred to a window of 0.098 eV (3.8 kT at
     # 298 K) that five times this floor would ask for. The step doubles with

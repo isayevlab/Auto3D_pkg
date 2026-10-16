@@ -365,10 +365,10 @@ class TestCustomModelAdapter:
 class TestTheShippedAdaptersKeepTheSharedDuplicateEnergyTolerance:
     """Every bundled adapter deduplicates with ``DEFAULT_DUPLICATE_ENERGY_TOL``.
 
-    The attribute exists so an adapter CAN carry its own number -- a custom
-    NNP whose owner measured one, or a future backend -- and the orchestrator
-    passes whatever it finds down to the conformer filter, which is a lower
-    layer and cannot ask which engine ran. None of the adapters shipped here
+    The attribute exists so an adapter class CAN carry its own number, for a
+    backend whose spread has been measured, and the orchestrator passes
+    whatever it finds down to the conformer filter, which is a lower layer and
+    cannot ask which engine ran. None of the adapters shipped here
     sets one: the 2026-10-16 measurement
     (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors that
     moved by 1.4x and 2.5x between two runs an hour apart, so five times the

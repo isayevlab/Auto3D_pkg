@@ -23,29 +23,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The duplicate-conformer test reads its energy tolerance from the model
   adapter that produced the energies. Every adapter Auto3D ships keeps
   `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV, 0.23 kcal/mol), so for the same
-  input a run deduplicates exactly as 3.2.1 did; an adapter that carries its
-  own `duplicate_energy_tol` -- a custom NNP whose owner measured one -- is
-  deduplicated with that value instead. `filter_conformers`,
+  input a run deduplicates exactly as 3.2.1 did; an adapter class can carry
+  its own `duplicate_energy_tol`, and conformers from that adapter are then
+  deduplicated with its value instead. `filter_conformers`,
   `filter_unique_optimized` and `ConformerRanker` take the tolerance as a
   parameter (`energy_tol`, `duplicate_energy_tol`), defaulting to the
   constant, and the pipeline passes the adapter's value down to the filter.
   The three bundled engines were measured for this release (three batch
-  arrangements, three repeats, one idle card, each largest case
-  geometry-checked as one minimum reached twice rather than two conformers):
-  the spread between two optimizations of one minimum reached 9.93e-3 eV
-  (0.23 kcal/mol) for AIMNet2, 2.10e-3 eV (0.048 kcal/mol) for ANI2xt and
-  1.95e-2 eV (0.45 kcal/mol) for ANI2x. That triggered the rule that would
-  make the tolerance engine-aware, which asked for 0.050, 0.011 and 0.098 eV
-  (1.15, 0.25 and 2.26 kcal/mol); none was adopted, because the floors moved
-  by 1.4x and 2.5x between two runs an hour apart and because a window at or
-  above kT (0.0257 eV, 0.59 kcal/mol, at 298 K) merges the O-H and N-H
-  rotamer pairs the energy half of the test exists to keep apart. The
-  measurement and that reading are written up in
+  arrangements, three repeats, one idle card, each largest case checked as
+  the same structure by the duplicate filter's own heavy-atom criterion):
+  the spread between two optimizations of the same starting structure reached
+  9.93e-3 eV (0.23 kcal/mol) for AIMNet2, 2.10e-3 eV (0.048 kcal/mol) for
+  ANI2xt and 1.95e-2 eV (0.45 kcal/mol) for ANI2x. Widening the tolerance to
+  five times each of those spreads -- 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
+  2.26 kcal/mol) -- was computed and rejected: the spreads themselves moved by
+  1.4x and 2.5x between two runs an hour apart, and a window of that width
+  would merge conformers that differ only in a hydroxyl or amine hydrogen
+  orientation, whose splittings are roughly 0.5 to 1.5 kcal/mol and which the
+  energy half of this test exists to keep apart. The measurement and that
+  reading are written up in
   `benchmarks/results-notes/2026-10-16-batch-noise.md`.
   Known limitation: ANI2x's measured spread is twice the tolerance (its total
   energy is a float32 quantity, quantized at 3.91e-3 eV (0.090 kcal/mol)
   near the largest of these molecules), so a true duplicate can survive as
-  two near-degenerate copies about 0.02 eV (0.45 kcal/mol) apart; AIMNet2's
+  two near-degenerate copies about 0.02 eV (0.46 kcal/mol) apart; AIMNet2's
   measured spread sits just inside the tolerance and could land past it on
   another run, while ANI2xt's is a fifth of it.
 
