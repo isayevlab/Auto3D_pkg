@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-10-16
+
 ### Changed
 - The model adapter's `forward`, `energy` and `analytic_hessian` take an
   optional keyword `mults` (the spin multiplicity per molecule, or `None` for
