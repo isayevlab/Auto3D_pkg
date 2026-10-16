@@ -285,13 +285,16 @@ in 124 of the 128 and 343 of the 359 pairs that exceed the floor; the mean signe
 +4.004e-03 eV and +6.265e-03 eV. The bulk of the distribution is therefore one-sided, toward
 higher final energies under `bitzek2006`.
 
-The largest single rows run both ways, and reproducibly so. For AIMNet2 the four largest
+For AIMNet2 the largest single rows run both ways, and reproducibly so: the four largest
 between-set differences are all one row -- row 69, the glycerol conformer named above -- where
-`bitzek2006` lands about 0.131 eV **lower** in each of the four repeats; the next four are row
-68, the adjacent conformer of the same molecule, where `bitzek2006` is about 0.081 eV **higher**
-in each of the four. The record carries no per-row fmax and no geometry comparison, so it cannot
-separate a difference of basin from a different stopping point inside one basin, for those rows
-or any other. No analogy is drawn here and no mechanism is proposed.
+`bitzek2006` lands about 0.131 eV **lower** in each of the four repeats, and the next four are
+row 68, the adjacent conformer of the same molecule, where `bitzek2006` is about 0.081 eV
+**higher** in each of the four. ANI2xt's largest differences are one-sided instead: ranking its
+809 both-converged pairs by magnitude, the first 228 are all `bitzek2006` higher, and the first
+sign reversal comes at rank 229, where the difference is 4.727e-03 eV. The record carries no
+per-row fmax and no geometry comparison, so it cannot separate a difference of basin from a
+different stopping point inside one basin, for those rows or any other. No analogy is drawn here
+and no mechanism is proposed.
 
 What the sign evidence establishes is that the between-set difference is systematic rather than
 scatter -- not that its magnitude exceeds the floor, which is a separate matter and read within
