@@ -221,5 +221,5 @@ Getting Help
 If you encounter issues during migration:
 
 - Check the `GitHub Issues <https://github.com/isayevlab/Auto3D_pkg/issues>`_
-- Review the `API Reference <api.html>`_
-- See the `Usage Guide <usage.html>`_ for updated examples
+- Review the :doc:`API Reference <api>`
+- See the :doc:`Usage Guide <usage>` for updated examples

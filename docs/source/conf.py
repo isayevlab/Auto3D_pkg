@@ -45,7 +45,12 @@ intersphinx_disabled_domains = ['std']
 
 # External pages that rot. The weekly link check is allowed to be red; a pattern
 # goes here with the reason, never a suppression in the workflow.
-linkcheck_ignore: list[str] = []
+linkcheck_ignore: list[str] = [
+    # The Auto3D paper's DOI resolves, but pubs.acs.org answers automated
+    # clients with 403 regardless of user agent, so the check can never pass
+    # from a runner. The DOI itself is correct and is checked by hand.
+    r'https://doi\.org/10\.1021/acs\.jcim\.2c00817',
+]
 
 templates_path = ['_templates']
 
