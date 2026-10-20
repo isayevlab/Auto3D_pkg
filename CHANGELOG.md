@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.18x and 1.24x at 256, and within noise of eager at 1 and 8. The two
   sessions are given as a range because two is too few to put an interval on.
   The padding costs one copy of the AEV block, kept for the backward pass --
-  57.5 MiB, 14.3% of peak allocation on that sweep -- and up to 56 discarded
+  57.5 MiB over the unpadded peak, a 14.3% rise -- and up to 56 discarded
   network rows per forward; nothing reaches a run with the flag off, which is
   the default. Energies agree with eager to 1.5e-06 eV over the pattern set
   (not bit-identical: padding changes how many rows each matrix multiply

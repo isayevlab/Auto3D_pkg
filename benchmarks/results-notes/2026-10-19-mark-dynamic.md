@@ -290,8 +290,12 @@ that bought correctness of intent at a cost in time, and it did not fire.
 **The honest shape of the timing claim is three tiers, not one number.**
 
 1. The compiled frame no longer falls back to eager.
-2. At 64 and 256 conformers per batch the forward is 1.17x and 1.20x eager,
-   with bootstrap intervals (1.09 to 1.20, 1.16 to 1.24) clear of 1.0.
+2. At 64 and 256 conformers per batch the forward is faster than eager in
+   both sessions and by a margin neither session's spread reaches: 1.214 and
+   1.068 at 64, 1.242 and 1.176 at 256. All four readings exceed 1.0, which
+   is the form of the claim the shipped text carries -- 1.07x and 1.21x at
+   64, 1.18x and 1.24x at 256. (The pooled column's intervals are not the
+   argument here; section 3 says why they cannot be.)
 3. At 1 and 8 conformers it is **within noise** of eager -- which is the
    whole claim, not a softened way of saying "not slower". The session ratios
    are 1.062 and 1.010 at batch 1 and 1.048 and 1.054 at batch 8, the pooled
@@ -380,10 +384,14 @@ the thing the recipe has to beat -- so the pooled numbers are, if anything,
 flattering to the recipe at exactly the batch sizes where tier 3 already says
 "within noise". Second, **a symmetric exclusion cuts both ways**: sample 2's
 *padded* pass 0 is elevated too, at batch 1 (0.3002 against its pass 1's
-0.2663) and batch 8 (0.3017 against 0.2601). Comparing each arm's clean pass
-with the other's gives 1.092, 0.976, 0.969 and 1.182. Which passes one calls
-clean is itself a choice made after the fact, which is why the rule does not
-make it.
+0.2663) and batch 8 (0.3017 against 0.2601). Setting the clean eager pass
+against the padded arm's **other** pass -- pass 1 -- gives 1.092, 0.976,
+0.969 and 1.182. Pass 1 is the padded arm's unelevated pass only at batches 1
+and 8, which is where the symmetric exclusion bites; at 64 and 256 the faster
+padded pass is pass 0 (0.2623 at both), so those two rows understate the
+recipe rather than flatter it. The arithmetic is left as it stands for that
+reason. Which passes one calls clean is itself a choice made after the fact,
+which is why the rule does not make it.
 
 **The card and the box.** Card 4 held nothing but these processes: in all
 four snapshots `other_processes` is empty, and `nvidia-smi` read 3 MiB and 0%
@@ -584,13 +592,18 @@ for size in replicate["batches"]:
         replicate["arms"]["eager"]["passes"][0]["batches"][key]["seconds"]
     )
     pooled_padded = replicate["arms"]["compiled_padded"]["batches"][key]["median_s"]
+    # Pass 1 is the padded arm's OTHER pass -- the one not elevated at batches
+    # 1 and 8, which is where the symmetric exclusion bites. It is not the
+    # faster padded pass at 64 and 256, where pass 0 is; those two rows
+    # therefore understate the recipe rather than flatter it.
     clean_padded = statistics.median(
         replicate["arms"]["compiled_padded"]["passes"][1]["batches"][key]["seconds"]
     )
     print(
         f"  batch {size:>3}: clean eager {clean_eager:.4f} over pooled padded "
         f"{pooled_padded:.4f} = {clean_eager / pooled_padded:.3f}; over the padded pass "
-        f"that is not elevated {clean_padded:.4f} = {clean_eager / clean_padded:.3f}"
+        f"on the other side of the sequence, pass 1, {clean_padded:.4f} = "
+        f"{clean_eager / clean_padded:.3f}"
     )
 
 print()
@@ -792,10 +805,10 @@ device cuda:0  smoke False  engine ANI2xt  reps 11 per pass  batches [1, 8, 64, 
   sample 2 compiled_padded pass 1: b1 0.2663 b8 0.2601 b64 0.2675 b256 0.2662
 
 ## section 6: sample 2 with its slow eager pass excluded
-  batch   1: clean eager 0.2908 over pooled padded 0.2976 = 0.977; over the padded pass that is not elevated 0.2663 = 1.092
-  batch   8: clean eager 0.2538 over pooled padded 0.2678 = 0.948; over the padded pass that is not elevated 0.2601 = 0.976
-  batch  64: clean eager 0.2593 over pooled padded 0.2647 = 0.979; over the padded pass that is not elevated 0.2675 = 0.969
-  batch 256: clean eager 0.3146 over pooled padded 0.2646 = 1.189; over the padded pass that is not elevated 0.2662 = 1.182
+  batch   1: clean eager 0.2908 over pooled padded 0.2976 = 0.977; over the padded pass on the other side of the sequence, pass 1, 0.2663 = 1.092
+  batch   8: clean eager 0.2538 over pooled padded 0.2678 = 0.948; over the padded pass on the other side of the sequence, pass 1, 0.2601 = 0.976
+  batch  64: clean eager 0.2593 over pooled padded 0.2647 = 0.979; over the padded pass on the other side of the sequence, pass 1, 0.2675 = 0.969
+  batch 256: clean eager 0.3146 over pooled padded 0.2646 = 1.189; over the padded pass on the other side of the sequence, pass 1, 0.2662 = 1.182
 
 ## section 5: the worst padded-over-eager reading in any single pass
   1.189 (sample 2 pass 0 batch 8)

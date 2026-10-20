@@ -234,13 +234,24 @@ For PyTorch 2.0+, enable compilation:
 .. code:: console
 
    export AUTO3D_COMPILE_MODEL=1
-   auto3d run input.smi --k=1 --gpu --engine=ANI2x
+   auto3d run input.smi --k=1 --gpu --engine=ANI2xt
 
-Off by default, and no speedup figure is documented because none has been
-measured on this codebase. The "~1.25x" these docs used to quote was
-unsubstantiated, and for ANI2xt it could not have originated in the model:
-its per-element loop used to graph-break in a way that made Dynamo skip the
-whole frame, compiling zero subgraphs. To measure it on your own hardware, run
+Off by default. ``ANI2xt`` is the engine this compiles; ``ANI2x`` ignores the
+flag with a warning, because compiling torchani's AEV path corrupts its
+energies.
+
+The "~1.25x" these docs used to quote was unsubstantiated, and for ANI2xt it
+could not have originated in the model: its per-element loop used to
+graph-break in a way that made Dynamo skip the whole frame, compiling zero
+subgraphs. What has since been measured, on one L40S over 32
+element-presence patterns in two sessions, is in *What compiling ANI2xt buys*
+in :doc:`../advanced_usage`: the compiled frame no longer falls back to eager
+part-way through a run, the forward with forces is 1.07x and 1.21x eager at
+64 conformers per batch in the two sessions and 1.18x and 1.24x at 256, and
+at 1 and 8 conformers it is within noise of eager. Peak allocation rises
+57.5 MiB (a 14.3% rise). Those are per-forward figures and exclude the cold
+compile, which is paid once per process, so whether compiling pays still
+depends on how long your run is. To measure it on your own hardware, run
 ``benchmarks/run_perf_ab.sh``, which times ANI2xt eager against ANI2xt
 compiled.
 
