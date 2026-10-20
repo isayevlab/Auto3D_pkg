@@ -1,0 +1,1582 @@
+{
+ "env": {
+  "gpu": "NVIDIA L40S",
+  "torch": "2.9.1+cu128",
+  "cuda": "12.8",
+  "capability": "8.9",
+  "python": "3.13.12",
+  "commit": "c32bf90",
+  "ref": "bench/rotamer-splittings",
+  "dirty_tree": true,
+  "auto3d_path": "/home/olexandr/auto3d-wt-rotamer/src/Auto3D",
+  "precision": {
+   "matmul_allow_tf32": false,
+   "cudnn_allow_tf32": false,
+   "matmul_fp32_precision": "ieee",
+   "cudnn_fp32_precision": "ieee",
+   "float32_matmul_precision": "highest"
+  },
+  "cuda_visible_devices": "2",
+  "aimnet": "0.2.0.post1.dev34+g8092749f9.d20260617",
+  "torchani": "2.8.4",
+  "rdkit": "2025.9.6"
+ },
+ "device": "cuda:0",
+ "smoke": false,
+ "reps": 3,
+ "limit": null,
+ "molecules": {
+  "catechol": "Oc1ccccc1O",
+  "4_aminophenol": "Nc1ccc(O)cc1",
+  "ethylene_glycol": "OCCO",
+  "ethanolamine": "NCCO",
+  "tyramine": "NCCc1ccc(O)cc1",
+  "propylene_glycol": "CC(O)CO",
+  "serine": "NC(CO)C(=O)O",
+  "glycerol": "OCC(O)CO",
+  "diethanolamine": "OCCNCCO",
+  "salbutamol": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1"
+ },
+ "pool_sizes": {
+  "catechol": 1,
+  "4_aminophenol": 1,
+  "ethylene_glycol": 3,
+  "ethanolamine": 3,
+  "tyramine": 3,
+  "propylene_glycol": 5,
+  "serine": 6,
+  "glycerol": 9,
+  "diethanolamine": 40,
+  "salbutamol": 93
+ },
+ "opttol": 0.01,
+ "patience": 250,
+ "max_steps": 2000,
+ "rmsd_threshold": 0.3,
+ "rotamer_torsion_deg": 60.0,
+ "five_times_floor_ev": {
+  "AIMNET": 0.05,
+  "ANI2xt": 0.011,
+  "ANI2x": 0.098
+ },
+ "gpu_state": {
+  "start": {
+   "nvidia_smi_id": "2",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "0 %",
+   "clocks_sm": "2520 MHz",
+   "clocks_mem": "9001 MHz",
+   "temperature_gpu": "27",
+   "memory_used": "531 MiB",
+   "other_processes": [
+    {
+     "pid": 360037,
+     "used_memory": "522 MiB"
+    }
+   ]
+  },
+  "end": {
+   "nvidia_smi_id": "2",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "29 %",
+   "clocks_sm": "2520 MHz",
+   "clocks_mem": "9001 MHz",
+   "temperature_gpu": "30",
+   "memory_used": "2008 MiB",
+   "other_processes": [
+    {
+     "pid": 362215,
+     "used_memory": "1372 MiB"
+    }
+   ]
+  }
+ },
+ "engines": {
+  "AIMNET": {
+   "pairs": [
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.09336206868547438,
+     "all_atom_rmsd": 0.5169616286324624,
+     "max_polar_torsion_deg": 147.65841798676007,
+     "gap_ev": 0.1572499480280385,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.1737883583392008,
+     "all_atom_rmsd": 0.5267205211298729,
+     "max_polar_torsion_deg": 115.80390031489489,
+     "gap_ev": 0.039311953869400895,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.182044001826601,
+     "all_atom_rmsd": 0.537102184215739,
+     "max_polar_torsion_deg": 105.8337399859463,
+     "gap_ev": 0.0425144236687629,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.21382597620444566,
+     "all_atom_rmsd": 0.4821539312038204,
+     "max_polar_torsion_deg": 127.18168027684595,
+     "gap_ev": 0.10989546386917937,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_17",
+     "heavy_rmsd": 0.26555940340298845,
+     "all_atom_rmsd": 0.42891121708858276,
+     "max_polar_torsion_deg": 166.3433042663946,
+     "gap_ev": 0.1619628354383167,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.19976284762174112,
+     "all_atom_rmsd": 0.4708564162587513,
+     "max_polar_torsion_deg": 116.55876192000176,
+     "gap_ev": 0.2377489485879778,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2894934782613338,
+     "all_atom_rmsd": 0.5578496695379462,
+     "max_polar_torsion_deg": 163.1635587419516,
+     "gap_ev": 0.007295313705981243,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.18832542481692366,
+     "all_atom_rmsd": 0.47945470069517515,
+     "max_polar_torsion_deg": 162.92891147723165,
+     "gap_ev": 0.1507646587342606,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.25753771110893,
+     "all_atom_rmsd": 0.4257426959130863,
+     "max_polar_torsion_deg": 125.07528144945175,
+     "gap_ev": 0.046906643900001654,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_22",
+     "b": "salbutamol_46",
+     "heavy_rmsd": 0.19526721437909628,
+     "all_atom_rmsd": 0.40708141550968474,
+     "max_polar_torsion_deg": 174.37192301451378,
+     "gap_ev": 0.021623839413223322,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.29187475335932284,
+     "all_atom_rmsd": 0.5589164937398906,
+     "max_polar_torsion_deg": 103.17419857517145,
+     "gap_ev": 0.06173680697611417,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_77",
+     "b": "salbutamol_87",
+     "heavy_rmsd": 0.19919009108658176,
+     "all_atom_rmsd": 0.48148709911234966,
+     "max_polar_torsion_deg": 137.65480290461068,
+     "gap_ev": 0.0443331284695887,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.09335789310248356,
+     "all_atom_rmsd": 0.5169596385838867,
+     "max_polar_torsion_deg": 147.6584033503289,
+     "gap_ev": 0.15724664908520936,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.17379252067040932,
+     "all_atom_rmsd": 0.5267250350395536,
+     "max_polar_torsion_deg": 115.80440176198474,
+     "gap_ev": 0.03931589513740619,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.18204730532375266,
+     "all_atom_rmsd": 0.537105715230198,
+     "max_polar_torsion_deg": 105.83346527936419,
+     "gap_ev": 0.04251438543178665,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.22501787272496113,
+     "all_atom_rmsd": 0.4928263194235988,
+     "max_polar_torsion_deg": 128.12870388920174,
+     "gap_ev": 0.11207035413826816,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_17",
+     "heavy_rmsd": 0.2651872859453553,
+     "all_atom_rmsd": 0.42865303425294116,
+     "max_polar_torsion_deg": 166.35596092566726,
+     "gap_ev": 0.1621571744326502,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.20031989025750574,
+     "all_atom_rmsd": 0.47116335488223954,
+     "max_polar_torsion_deg": 116.4609312541177,
+     "gap_ev": 0.2379445426595339,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.28949282220396544,
+     "all_atom_rmsd": 0.557849064442655,
+     "max_polar_torsion_deg": 163.16356199354607,
+     "gap_ev": 0.007296004332602024,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.1883406581805581,
+     "all_atom_rmsd": 0.47946423490708245,
+     "max_polar_torsion_deg": 162.9296788993353,
+     "gap_ev": 0.15075145713126403,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.25758396217066293,
+     "all_atom_rmsd": 0.4258120099299551,
+     "max_polar_torsion_deg": 125.07196508812461,
+     "gap_ev": 0.04686494737688918,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_22",
+     "b": "salbutamol_46",
+     "heavy_rmsd": 0.1953982448160227,
+     "all_atom_rmsd": 0.40719283277866697,
+     "max_polar_torsion_deg": 174.3775484709435,
+     "gap_ev": 0.021613967823213898,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.2918817493286904,
+     "all_atom_rmsd": 0.558922917994181,
+     "max_polar_torsion_deg": 103.17448032976338,
+     "gap_ev": 0.061740250792354345,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_77",
+     "b": "salbutamol_87",
+     "heavy_rmsd": 0.19896635003563226,
+     "all_atom_rmsd": 0.48109384130182065,
+     "max_polar_torsion_deg": 137.66924197366612,
+     "gap_ev": 0.04451291271834634,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.09336313444158392,
+     "all_atom_rmsd": 0.5169608847185692,
+     "max_polar_torsion_deg": 147.65867821018304,
+     "gap_ev": 0.1572503236893681,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.1737867416597259,
+     "all_atom_rmsd": 0.5267200664996637,
+     "max_polar_torsion_deg": 115.8025520850685,
+     "gap_ev": 0.039313770745138754,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.18205228707063992,
+     "all_atom_rmsd": 0.5371099090463636,
+     "max_polar_torsion_deg": 105.8323744118789,
+     "gap_ev": 0.04251205051150464,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.2256189998354278,
+     "all_atom_rmsd": 0.4934082567688069,
+     "max_polar_torsion_deg": 128.335630275692,
+     "gap_ev": 0.11215717530285474,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_17",
+     "heavy_rmsd": 0.26555880306057195,
+     "all_atom_rmsd": 0.4289175132534757,
+     "max_polar_torsion_deg": 166.3426377833934,
+     "gap_ev": 0.16195897321449593,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.1997562220932061,
+     "all_atom_rmsd": 0.47086222554149243,
+     "max_polar_torsion_deg": 116.56567362656976,
+     "gap_ev": 0.237748450392246,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2894984985268722,
+     "all_atom_rmsd": 0.5578535210374201,
+     "max_polar_torsion_deg": 163.1643386464022,
+     "gap_ev": 0.007299002685613232,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.18833722119716473,
+     "all_atom_rmsd": 0.47945947289478696,
+     "max_polar_torsion_deg": 162.92722882372368,
+     "gap_ev": 0.15075801013881573,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.2509285837684776,
+     "all_atom_rmsd": 0.418754223683194,
+     "max_polar_torsion_deg": 124.4096086664859,
+     "gap_ev": 0.047896162071992876,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_22",
+     "b": "salbutamol_46",
+     "heavy_rmsd": 0.19529881695290932,
+     "all_atom_rmsd": 0.4071059724443526,
+     "max_polar_torsion_deg": 174.3748831150781,
+     "gap_ev": 0.021616088328300975,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.2918772276400062,
+     "all_atom_rmsd": 0.5589186632406516,
+     "max_polar_torsion_deg": 103.17426272119458,
+     "gap_ev": 0.061730926998279756,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_77",
+     "b": "salbutamol_87",
+     "heavy_rmsd": 0.19831003447698053,
+     "all_atom_rmsd": 0.48059861285502686,
+     "max_polar_torsion_deg": 137.6175724000881,
+     "gap_ev": 0.04478175957410713,
+     "rep": 2
+    }
+   ],
+   "per_rep": [
+    {
+     "rep": 0,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 12,
+     "summary": {
+      "n": 12,
+      "min_ev": 0.007295313705981243,
+      "min_kcal": 0.168233930656151,
+      "q1_ev": 0.0417138062189224,
+      "q1_kcal": 0.9619432235086334,
+      "median_ev": 0.05432172543805791,
+      "median_kcal": 1.2526887477060886,
+      "q3_ev": 0.15238598105770507,
+      "q3_kcal": 3.5141042048970124,
+      "p90_ev": 0.16149154669728888,
+      "p90_kcal": 3.724083536853476,
+      "max_ev": 0.2377489485879778,
+      "max_kcal": 5.482621000592445
+     }
+    },
+    {
+     "rep": 1,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 12,
+     "summary": {
+      "n": 12,
+      "min_ev": 0.007296004332602024,
+      "min_kcal": 0.1682498568843726,
+      "q1_ev": 0.041714762858191534,
+      "q1_kcal": 0.9619652841342559,
+      "median_ev": 0.05430259908462176,
+      "median_kcal": 1.252247683517849,
+      "q3_ev": 0.15237525511975036,
+      "q3_kcal": 3.51385685889178,
+      "p90_ev": 0.16166612189790613,
+      "p90_kcal": 3.7281093366173503,
+      "max_ev": 0.2379445426595339,
+      "max_kcal": 5.487131507034951
+     }
+    },
+    {
+     "rep": 2,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 12,
+     "summary": {
+      "n": 12,
+      "min_ev": 0.007299002685613232,
+      "min_kcal": 0.16831900054740065,
+      "q1_ev": 0.04171248056991317,
+      "q1_kcal": 0.9619126533162494,
+      "median_ev": 0.054813544535136316,
+      "median_kcal": 1.2640303655182772,
+      "q3_ev": 0.15238108852645382,
+      "q3_kcal": 3.5139913804460803,
+      "p90_ev": 0.16148810826198315,
+      "p90_kcal": 3.724004244651646,
+      "max_ev": 0.237748450392246,
+      "max_kcal": 5.4826095119259435
+     }
+    }
+   ],
+   "summary": {
+    "n": 36,
+    "min_ev": 0.007295313705981243,
+    "min_kcal": 0.168233930656151,
+    "q1_ev": 0.04171301166798003,
+    "q1_kcal": 0.9619249007286229,
+    "median_ev": 0.054813544535136316,
+    "median_kcal": 1.2640303655182772,
+    "q3_ev": 0.15238515632199778,
+    "q3_kcal": 3.5140851860397873,
+    "p90_ev": 0.16206000493548345,
+    "p90_kcal": 3.7371924952450715,
+    "max_ev": 0.2379445426595339,
+    "max_kcal": 5.487131507034951
+   },
+   "rotamer_subset_summary": {
+    "n": 36,
+    "min_ev": 0.007295313705981243,
+    "min_kcal": 0.168233930656151,
+    "q1_ev": 0.04171301166798003,
+    "q1_kcal": 0.9619249007286229,
+    "median_ev": 0.054813544535136316,
+    "median_kcal": 1.2640303655182772,
+    "q3_ev": 0.15238515632199778,
+    "q3_kcal": 3.5140851860397873,
+    "p90_ev": 0.16206000493548345,
+    "p90_kcal": 3.7371924952450715,
+    "max_ev": 0.2379445426595339,
+    "max_kcal": 5.487131507034951
+   },
+   "per_molecule_pairs": {
+    "catechol": 0,
+    "4_aminophenol": 0,
+    "ethylene_glycol": 0,
+    "ethanolamine": 0,
+    "tyramine": 0,
+    "propylene_glycol": 0,
+    "serine": 0,
+    "glycerol": 0,
+    "diethanolamine": 9,
+    "salbutamol": 27
+   },
+   "rule": {
+    "lower_quartile_ev": 0.04171301166798003,
+    "five_times_floor_ev": 0.05,
+    "production_tolerance_ev": 0.01,
+    "below_five_times_floor": true,
+    "above_production_tolerance": true,
+    "n_pairs": 36,
+    "pairs_below_five_times_floor": 18,
+    "pairs_below_production_tolerance": 3
+   },
+   "seconds": 41.97034878376871,
+   "gpu_state": {
+    "nvidia_smi_id": "2",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "0 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "29",
+    "memory_used": "1502 MiB",
+    "other_processes": [
+     {
+      "pid": 361743,
+      "used_memory": "454 MiB"
+     }
+    ]
+   },
+   "max_memory_allocated": 348668416,
+   "memory_reserved": 545259520
+  },
+  "ANI2xt": {
+   "pairs": [
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.07038086987911046,
+     "all_atom_rmsd": 0.45213591164303135,
+     "max_polar_torsion_deg": 118.35141517905464,
+     "gap_ev": 0.010136651178981992,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.1139156987520369,
+     "all_atom_rmsd": 0.15582183619222026,
+     "max_polar_torsion_deg": 8.41521383595284,
+     "gap_ev": 0.004225418764690403,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_13",
+     "b": "diethanolamine_37",
+     "heavy_rmsd": 0.2954744726797834,
+     "all_atom_rmsd": 0.6770034369244432,
+     "max_polar_torsion_deg": 110.75845291745111,
+     "gap_ev": 0.09806921428389614,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.11747542742313821,
+     "all_atom_rmsd": 0.4373276479379312,
+     "max_polar_torsion_deg": 111.58615076211957,
+     "gap_ev": 0.0017855620390037075,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_19",
+     "b": "diethanolamine_33",
+     "heavy_rmsd": 0.23067851814187681,
+     "all_atom_rmsd": 0.6901267185184911,
+     "max_polar_torsion_deg": 123.7072278865309,
+     "gap_ev": 0.0817020395425061,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.08484404099376945,
+     "all_atom_rmsd": 0.2906830971404599,
+     "max_polar_torsion_deg": 135.99827018939226,
+     "gap_ev": 0.00431138078965887,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.17750671755776715,
+     "all_atom_rmsd": 0.4472964709186387,
+     "max_polar_torsion_deg": 112.99597331941487,
+     "gap_ev": 0.16379199793300359,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.21927732338087533,
+     "all_atom_rmsd": 0.4880518780646579,
+     "max_polar_torsion_deg": 132.1472626729872,
+     "gap_ev": 0.1883437610740657,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2769946027134955,
+     "all_atom_rmsd": 0.5433103800274841,
+     "max_polar_torsion_deg": 164.26981383257794,
+     "gap_ev": 0.015082977599377045,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.2686975207577886,
+     "all_atom_rmsd": 0.6355103017914423,
+     "max_polar_torsion_deg": 164.16543347502196,
+     "gap_ev": 0.034966650488058804,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_63",
+     "heavy_rmsd": 0.2125852767957898,
+     "all_atom_rmsd": 0.40910587768016826,
+     "max_polar_torsion_deg": 125.17656361211306,
+     "gap_ev": 0.022441790759330615,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.07038045679971207,
+     "all_atom_rmsd": 0.4521404001524349,
+     "max_polar_torsion_deg": 118.35286593925463,
+     "gap_ev": 0.010135029255252448,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.11385703846805283,
+     "all_atom_rmsd": 0.1557547495121887,
+     "max_polar_torsion_deg": 8.413298476660145,
+     "gap_ev": 0.00422420232098375,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_13",
+     "b": "diethanolamine_37",
+     "heavy_rmsd": 0.2954748237718864,
+     "all_atom_rmsd": 0.6770036139199642,
+     "max_polar_torsion_deg": 110.75829009088046,
+     "gap_ev": 0.09807103894854663,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.11741262518695837,
+     "all_atom_rmsd": 0.4373209487531943,
+     "max_polar_torsion_deg": 111.58622824402812,
+     "gap_ev": 0.0017882230094983242,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_19",
+     "b": "diethanolamine_33",
+     "heavy_rmsd": 0.23057986192633873,
+     "all_atom_rmsd": 0.6900887155084585,
+     "max_polar_torsion_deg": 123.7023887354338,
+     "gap_ev": 0.08169253607775318,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.08483895965785665,
+     "all_atom_rmsd": 0.2906835768473814,
+     "max_polar_torsion_deg": 135.99818197279882,
+     "gap_ev": 0.004312090381063172,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.17708102046738172,
+     "all_atom_rmsd": 0.4465474906455293,
+     "max_polar_torsion_deg": 113.03640036344513,
+     "gap_ev": 0.16358532920639846,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.21927955512986302,
+     "all_atom_rmsd": 0.48805381767770123,
+     "max_polar_torsion_deg": 132.1477719539883,
+     "gap_ev": 0.18834771451656707,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2769995854351411,
+     "all_atom_rmsd": 0.5433142666391761,
+     "max_polar_torsion_deg": 164.2699822998684,
+     "gap_ev": 0.015081368343089707,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.26870163131587593,
+     "all_atom_rmsd": 0.6355134184078958,
+     "max_polar_torsion_deg": 164.16523975400023,
+     "gap_ev": 0.03497067996067926,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_63",
+     "heavy_rmsd": 0.2125848267933869,
+     "all_atom_rmsd": 0.4091056392606016,
+     "max_polar_torsion_deg": 125.17659937931143,
+     "gap_ev": 0.022443729463702766,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.07038115385860597,
+     "all_atom_rmsd": 0.4521414133693955,
+     "max_polar_torsion_deg": 118.35206770959115,
+     "gap_ev": 0.01013604295803816,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.11393135215068749,
+     "all_atom_rmsd": 0.1558407486738297,
+     "max_polar_torsion_deg": 8.41572509945005,
+     "gap_ev": 0.0042262804108759155,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_13",
+     "b": "diethanolamine_37",
+     "heavy_rmsd": 0.29547418300195494,
+     "all_atom_rmsd": 0.677002869202761,
+     "max_polar_torsion_deg": 110.75789808099645,
+     "gap_ev": 0.09807073483898421,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.11742686293978774,
+     "all_atom_rmsd": 0.43731623990561447,
+     "max_polar_torsion_deg": 111.58450718888464,
+     "gap_ev": 0.001789186026144307,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_19",
+     "b": "diethanolamine_33",
+     "heavy_rmsd": 0.2306462047861129,
+     "all_atom_rmsd": 0.6901136550763328,
+     "max_polar_torsion_deg": 123.70518297432145,
+     "gap_ev": 0.08169458882548497,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.08324191912701014,
+     "all_atom_rmsd": 0.29058546747716507,
+     "max_polar_torsion_deg": 136.0435924339278,
+     "gap_ev": 0.004484926766963326,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.17708916501861133,
+     "all_atom_rmsd": 0.44656320152217155,
+     "max_polar_torsion_deg": 113.03621885411741,
+     "gap_ev": 0.16359631521481788,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.21927606568196178,
+     "all_atom_rmsd": 0.4880502246065214,
+     "max_polar_torsion_deg": 132.14731849069943,
+     "gap_ev": 0.18834870287537342,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2769998824742938,
+     "all_atom_rmsd": 0.5433129975996019,
+     "max_polar_torsion_deg": 164.27016437214607,
+     "gap_ev": 0.01508084882152616,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.2686958677334353,
+     "all_atom_rmsd": 0.6355105372940129,
+     "max_polar_torsion_deg": 164.1655468683233,
+     "gap_ev": 0.034966827886819374,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_63",
+     "heavy_rmsd": 0.21303156252088173,
+     "all_atom_rmsd": 0.40926133297122996,
+     "max_polar_torsion_deg": 125.20973585625532,
+     "gap_ev": 0.02229249762967811,
+     "rep": 2
+    }
+   ],
+   "per_rep": [
+    {
+     "rep": 0,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 11,
+     "summary": {
+      "n": 11,
+      "min_ev": 0.0017855620390037075,
+      "min_kcal": 0.04117603880498263,
+      "q1_ev": 0.007224015984320431,
+      "q1_kcal": 0.1665897661355777,
+      "median_ev": 0.022441790759330615,
+      "median_kcal": 0.5175199892102877,
+      "q3_ev": 0.08988562691320112,
+      "q3_kcal": 2.0728117987170513,
+      "p90_ev": 0.16379199793300359,
+      "p90_kcal": 3.7771332026066817,
+      "max_ev": 0.1883437610740657,
+      "max_kcal": 4.343310310847174
+     }
+    },
+    {
+     "rep": 1,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 11,
+     "summary": {
+      "n": 11,
+      "min_ev": 0.0017882230094983242,
+      "min_kcal": 0.041237402242349605,
+      "q1_ev": 0.00722355981815781,
+      "q1_kcal": 0.16657924669396584,
+      "median_ev": 0.022443729463702766,
+      "median_kcal": 0.5175646967951911,
+      "q3_ev": 0.0898817875131499,
+      "q3_kcal": 2.0727232600485292,
+      "p90_ev": 0.16358532920639846,
+      "p90_kcal": 3.772367308551711,
+      "max_ev": 0.18834771451656707,
+      "max_kcal": 4.343401479397072
+     }
+    },
+    {
+     "rep": 2,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 11,
+     "summary": {
+      "n": 11,
+      "min_ev": 0.001789186026144307,
+      "min_kcal": 0.041259609933775976,
+      "q1_ev": 0.0073104848625007435,
+      "q1_kcal": 0.16858378583671474,
+      "median_ev": 0.02229249762967811,
+      "median_kcal": 0.5140772078531533,
+      "q3_ev": 0.08988266183223459,
+      "q3_kcal": 2.0727434223256007,
+      "p90_ev": 0.16359631521481788,
+      "p90_kcal": 3.772620651924335,
+      "max_ev": 0.18834870287537342,
+      "max_kcal": 4.3434242714926
+     }
+    }
+   ],
+   "summary": {
+    "n": 33,
+    "min_ev": 0.0017855620390037075,
+    "min_kcal": 0.04117603880498263,
+    "q1_ev": 0.004484926766963326,
+    "q1_kcal": 0.10342486822638133,
+    "median_ev": 0.022441790759330615,
+    "median_kcal": 0.5175199892102877,
+    "q3_ev": 0.09806921428389614,
+    "q3_kcal": 2.261529806705014,
+    "p90_ev": 0.16375286138936646,
+    "p90_kcal": 3.7762306924702127,
+    "max_ev": 0.18834870287537342,
+    "max_kcal": 4.3434242714926
+   },
+   "rotamer_subset_summary": {
+    "n": 30,
+    "min_ev": 0.0017855620390037075,
+    "min_kcal": 0.04117603880498263,
+    "q1_ev": 0.010136195013274119,
+    "q1_kcal": 0.23374620992408987,
+    "median_ev": 0.028705189975880785,
+    "median_kcal": 0.6619574064258046,
+    "q3_ev": 0.09807035470021219,
+    "q3_kcal": 2.261556105330017,
+    "p90_ev": 0.16624717424710983,
+    "p90_kcal": 3.8337509134307317,
+    "max_ev": 0.18834870287537342,
+    "max_kcal": 4.3434242714926
+   },
+   "per_molecule_pairs": {
+    "catechol": 0,
+    "4_aminophenol": 0,
+    "ethylene_glycol": 0,
+    "ethanolamine": 0,
+    "tyramine": 0,
+    "propylene_glycol": 0,
+    "serine": 0,
+    "glycerol": 0,
+    "diethanolamine": 18,
+    "salbutamol": 15
+   },
+   "rule": {
+    "lower_quartile_ev": 0.004484926766963326,
+    "five_times_floor_ev": 0.011,
+    "production_tolerance_ev": 0.01,
+    "below_five_times_floor": true,
+    "above_production_tolerance": false,
+    "n_pairs": 33,
+    "pairs_below_five_times_floor": 12,
+    "pairs_below_production_tolerance": 9
+   },
+   "seconds": 15.18570777401328,
+   "gpu_state": {
+    "nvidia_smi_id": "2",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "0 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "29",
+    "memory_used": "967 MiB",
+    "other_processes": []
+   },
+   "max_memory_allocated": 331325440,
+   "memory_reserved": 463470592
+  },
+  "ANI2x": {
+   "pairs": [
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.06106276441149929,
+     "all_atom_rmsd": 0.45102636127964846,
+     "max_polar_torsion_deg": 121.83359887465099,
+     "gap_ev": 0.01953125,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.0660700515344556,
+     "all_atom_rmsd": 0.08705349864143885,
+     "max_polar_torsion_deg": 4.50449957957526,
+     "gap_ev": 0.00390625,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.09221933951514713,
+     "all_atom_rmsd": 0.5366092920172109,
+     "max_polar_torsion_deg": 153.85561138308972,
+     "gap_ev": 0.251953125,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.10549219807203443,
+     "all_atom_rmsd": 0.31737959875036537,
+     "max_polar_torsion_deg": 142.72265414418547,
+     "gap_ev": 0.0068359375,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.29671183428932263,
+     "all_atom_rmsd": 0.6372951446401562,
+     "max_polar_torsion_deg": 130.45371898126933,
+     "gap_ev": 0.103515625,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.13862430979493964,
+     "all_atom_rmsd": 0.4293286907545607,
+     "max_polar_torsion_deg": 130.57628686078178,
+     "gap_ev": 0.244140625,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.2779598912408293,
+     "all_atom_rmsd": 0.5447536429238636,
+     "max_polar_torsion_deg": 164.777599464091,
+     "gap_ev": 0.099609375,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.1906667055056662,
+     "all_atom_rmsd": 0.5055603376443188,
+     "max_polar_torsion_deg": 136.72255211066408,
+     "gap_ev": 0.2109375,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.17576116769931505,
+     "all_atom_rmsd": 0.4707156634799624,
+     "max_polar_torsion_deg": 164.0111088895409,
+     "gap_ev": 0.265625,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.19529851217067853,
+     "all_atom_rmsd": 0.3940763202758447,
+     "max_polar_torsion_deg": 129.58188338334298,
+     "gap_ev": 0.10546875,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.24675327316443776,
+     "all_atom_rmsd": 0.5147982428014737,
+     "max_polar_torsion_deg": 117.49363931576517,
+     "gap_ev": 0.09375,
+     "rep": 0
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_57",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.2756175594133215,
+     "all_atom_rmsd": 0.5740339597412052,
+     "max_polar_torsion_deg": 166.56031234778587,
+     "gap_ev": 0.310546875,
+     "rep": 0
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.0610630816994075,
+     "all_atom_rmsd": 0.4510267836722648,
+     "max_polar_torsion_deg": 121.83357910828812,
+     "gap_ev": 0.01953125,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.06607731687398752,
+     "all_atom_rmsd": 0.08706133380607244,
+     "max_polar_torsion_deg": 4.504427473749345,
+     "gap_ev": 0.00390625,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.09802423153693646,
+     "all_atom_rmsd": 0.5430553493229177,
+     "max_polar_torsion_deg": 154.49165859873895,
+     "gap_ev": 0.2509765625,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.10548288079928456,
+     "all_atom_rmsd": 0.31737673433812624,
+     "max_polar_torsion_deg": 142.7229536278948,
+     "gap_ev": 0.0068359375,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.29700549372581325,
+     "all_atom_rmsd": 0.6377595348776683,
+     "max_polar_torsion_deg": 130.21966447505855,
+     "gap_ev": 0.103515625,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.13862400276396764,
+     "all_atom_rmsd": 0.4293284316762088,
+     "max_polar_torsion_deg": 130.57633671869237,
+     "gap_ev": 0.244140625,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.27796212166131057,
+     "all_atom_rmsd": 0.5447540170407069,
+     "max_polar_torsion_deg": 164.77671871415433,
+     "gap_ev": 0.099609375,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.19070001992092933,
+     "all_atom_rmsd": 0.5055927721313609,
+     "max_polar_torsion_deg": 136.7197102526565,
+     "gap_ev": 0.2109375,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.17565392020847861,
+     "all_atom_rmsd": 0.470540210226055,
+     "max_polar_torsion_deg": 163.99328986015556,
+     "gap_ev": 0.265625,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.19434966461473943,
+     "all_atom_rmsd": 0.3925478682905624,
+     "max_polar_torsion_deg": 129.14708147508273,
+     "gap_ev": 0.10546875,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.24676610567681373,
+     "all_atom_rmsd": 0.5148187621352911,
+     "max_polar_torsion_deg": 117.49491713735847,
+     "gap_ev": 0.09375,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_57",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.2755689150592667,
+     "all_atom_rmsd": 0.5740125566284938,
+     "max_polar_torsion_deg": 166.5608619789953,
+     "gap_ev": 0.310546875,
+     "rep": 1
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_64",
+     "b": "salbutamol_80",
+     "heavy_rmsd": 0.2962920578480466,
+     "all_atom_rmsd": 0.5165997824061498,
+     "max_polar_torsion_deg": 137.63397233777346,
+     "gap_ev": 0.0625,
+     "rep": 1
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_8",
+     "b": "diethanolamine_27",
+     "heavy_rmsd": 0.061059698038437527,
+     "all_atom_rmsd": 0.4510247778068031,
+     "max_polar_torsion_deg": 121.83394912993833,
+     "gap_ev": 0.01953125,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_12",
+     "b": "diethanolamine_30",
+     "heavy_rmsd": 0.06605753344624182,
+     "all_atom_rmsd": 0.08703764648867067,
+     "max_polar_torsion_deg": 4.5043356805988,
+     "gap_ev": 0.00390625,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_17",
+     "b": "diethanolamine_39",
+     "heavy_rmsd": 0.0871807445253781,
+     "all_atom_rmsd": 0.5319390045430408,
+     "max_polar_torsion_deg": 154.2109363980598,
+     "gap_ev": 0.251953125,
+     "rep": 2
+    },
+    {
+     "molecule": "diethanolamine",
+     "a": "diethanolamine_24",
+     "b": "diethanolamine_35",
+     "heavy_rmsd": 0.10549013296711422,
+     "all_atom_rmsd": 0.31737921997090296,
+     "max_polar_torsion_deg": 142.72293799639758,
+     "gap_ev": 0.0068359375,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_6",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.2970008884747974,
+     "all_atom_rmsd": 0.6377098831167358,
+     "max_polar_torsion_deg": 130.2592597673045,
+     "gap_ev": 0.103515625,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_9",
+     "b": "salbutamol_37",
+     "heavy_rmsd": 0.1386224079889494,
+     "all_atom_rmsd": 0.42932863460896387,
+     "max_polar_torsion_deg": 130.57677871379053,
+     "gap_ev": 0.244140625,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_57",
+     "heavy_rmsd": 0.27776937395112683,
+     "all_atom_rmsd": 0.5445848851333189,
+     "max_polar_torsion_deg": 164.7863153848797,
+     "gap_ev": 0.099609375,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_13",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.190708660147569,
+     "all_atom_rmsd": 0.5055958258644957,
+     "max_polar_torsion_deg": 136.71869459736348,
+     "gap_ev": 0.2109375,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_14",
+     "b": "salbutamol_34",
+     "heavy_rmsd": 0.17575454471165985,
+     "all_atom_rmsd": 0.47070824428639774,
+     "max_polar_torsion_deg": 164.01061846135744,
+     "gap_ev": 0.265625,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_16",
+     "b": "salbutamol_76",
+     "heavy_rmsd": 0.19437581709627869,
+     "all_atom_rmsd": 0.39258855867488707,
+     "max_polar_torsion_deg": 129.1585690095654,
+     "gap_ev": 0.10546875,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_31",
+     "b": "salbutamol_49",
+     "heavy_rmsd": 0.24676230080297523,
+     "all_atom_rmsd": 0.5148067710893561,
+     "max_polar_torsion_deg": 117.4932245703036,
+     "gap_ev": 0.09375,
+     "rep": 2
+    },
+    {
+     "molecule": "salbutamol",
+     "a": "salbutamol_57",
+     "b": "salbutamol_73",
+     "heavy_rmsd": 0.27519963172698525,
+     "all_atom_rmsd": 0.5737333255116612,
+     "max_polar_torsion_deg": 166.5712292101219,
+     "gap_ev": 0.310546875,
+     "rep": 2
+    }
+   ],
+   "per_rep": [
+    {
+     "rep": 0,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 12,
+     "summary": {
+      "n": 12,
+      "min_ev": 0.00390625,
+      "min_kcal": 0.09008026496335557,
+      "q1_ev": 0.0751953125,
+      "q1_kcal": 1.7340451005445947,
+      "median_ev": 0.1044921875,
+      "median_kcal": 2.4096470877697613,
+      "q3_ev": 0.24609375,
+      "q3_kcal": 5.675056692691401,
+      "p90_ev": 0.2642578125,
+      "p90_kcal": 6.093929924771005,
+      "max_ev": 0.310546875,
+      "max_kcal": 7.1613810645867675
+     }
+    },
+    {
+     "rep": 1,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 13,
+     "summary": {
+      "n": 13,
+      "min_ev": 0.00390625,
+      "min_kcal": 0.09008026496335557,
+      "q1_ev": 0.0625,
+      "q1_kcal": 1.441284239413689,
+      "median_ev": 0.103515625,
+      "median_kcal": 2.3871270215289226,
+      "q3_ev": 0.244140625,
+      "q3_kcal": 5.630016560209723,
+      "p90_ev": 0.2626953125,
+      "p90_kcal": 6.057897818785662,
+      "max_ev": 0.310546875,
+      "max_kcal": 7.1613810645867675
+     }
+    },
+    {
+     "rep": 2,
+     "converged": 164,
+     "conformers": 164,
+     "pairs": 12,
+     "summary": {
+      "n": 12,
+      "min_ev": 0.00390625,
+      "min_kcal": 0.09008026496335557,
+      "q1_ev": 0.0751953125,
+      "q1_kcal": 1.7340451005445947,
+      "median_ev": 0.1044921875,
+      "median_kcal": 2.4096470877697613,
+      "q3_ev": 0.24609375,
+      "q3_kcal": 5.675056692691401,
+      "p90_ev": 0.2642578125,
+      "p90_kcal": 6.093929924771005,
+      "max_ev": 0.310546875,
+      "max_kcal": 7.1613810645867675
+     }
+    }
+   ],
+   "summary": {
+    "n": 37,
+    "min_ev": 0.00390625,
+    "min_kcal": 0.09008026496335557,
+    "q1_ev": 0.0625,
+    "q1_kcal": 1.441284239413689,
+    "median_ev": 0.103515625,
+    "median_kcal": 2.3871270215289226,
+    "q3_ev": 0.244140625,
+    "q3_kcal": 5.630016560209723,
+    "p90_ev": 0.265625,
+    "p90_kcal": 6.125458017508179,
+    "max_ev": 0.310546875,
+    "max_kcal": 7.1613810645867675
+   },
+   "rotamer_subset_summary": {
+    "n": 34,
+    "min_ev": 0.0068359375,
+    "min_kcal": 0.15764046368587226,
+    "q1_ev": 0.09375,
+    "q1_kcal": 2.1619263591205335,
+    "median_ev": 0.10546875,
+    "median_kcal": 2.4321671540106005,
+    "q3_ev": 0.249267578125,
+    "q3_kcal": 5.748246907974127,
+    "p90_ev": 0.265625,
+    "p90_kcal": 6.125458017508179,
+    "max_ev": 0.310546875,
+    "max_kcal": 7.1613810645867675
+   },
+   "per_molecule_pairs": {
+    "catechol": 0,
+    "4_aminophenol": 0,
+    "ethylene_glycol": 0,
+    "ethanolamine": 0,
+    "tyramine": 0,
+    "propylene_glycol": 0,
+    "serine": 0,
+    "glycerol": 0,
+    "diethanolamine": 12,
+    "salbutamol": 25
+   },
+   "rule": {
+    "lower_quartile_ev": 0.0625,
+    "five_times_floor_ev": 0.098,
+    "production_tolerance_ev": 0.01,
+    "below_five_times_floor": true,
+    "above_production_tolerance": true,
+    "n_pairs": 37,
+    "pairs_below_five_times_floor": 13,
+    "pairs_below_production_tolerance": 6
+   },
+   "seconds": 40.80265609873459,
+   "gpu_state": {
+    "nvidia_smi_id": "2",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "0 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "30",
+    "memory_used": "2436 MiB",
+    "other_processes": [
+     {
+      "pid": 362215,
+      "used_memory": "1372 MiB"
+     }
+    ]
+   },
+   "max_memory_allocated": 417735680,
+   "memory_reserved": 559939584
+  }
+ },
+ "decision": {
+  "engines_read": [
+   "AIMNET",
+   "ANI2x",
+   "ANI2xt"
+  ],
+  "engines_without_a_distribution": [],
+  "existing_argument_stands_for": [
+   "AIMNET",
+   "ANI2x",
+   "ANI2xt"
+  ],
+  "reopens_shipped_tolerance": false
+ }
+}

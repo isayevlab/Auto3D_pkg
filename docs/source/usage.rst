@@ -597,16 +597,31 @@ energy. The AIMNet2 spread (9.9e-3 eV) sits just inside the tolerance, close
 enough that another run can land outside it; the ANI2xt spread (2.1e-3 eV) is
 a fifth of it. The tolerance is deliberately not widened to cover those
 spreads: five times them would be 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
-2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and the AIMNet2 and
-ANI2x windows would also merge two genuinely distinct conformers that differ
-only in where a hydroxyl or amine hydrogen points, whose splittings are
-roughly 0.5 to 1.5 kcal/mol, which heavy-atom RMSD cannot tell apart and which
-the energy comparison is there to protect; ANI2xt's 0.011 eV (0.25 kcal/mol)
-sits below that band and is within rounding of the tolerance. A surviving
+2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and every one of those
+three windows would also merge conformer pairs that heavy-atom RMSD cannot
+separate and that the energy comparison is there to protect -- the motivation
+for that comparison being the pairs differing in where a hydroxyl or amine
+hydrogen points, which the RMSD term cannot see at all. How far apart such
+pairs sit was measured on 2026-10-19, over three repeats of a 164-conformer
+pool: 12 distinct pairs for AIMNet2, spanning 0.17 to 5.5 kcal/mol with a
+median of 1.3; 11 for ANI2xt, spanning 0.04 to 4.3 with a median of 0.5; and
+13 for ANI2x, spanning 0.09 to 7.2 with a median of 2.4. Two of the ten
+molecules in that set produced every pair, and ANI2xt's 0.011 eV is within
+rounding of the tolerance besides.
+
+Restricted to the pairs whose polar hydrogens actually moved to another rotor
+well -- the population the energy comparison exists for -- those three windows
+merge 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in every repeat, and 3 or 4 of
+ANI2x's 12 depending on the repeat, against 1, 2 and 1 for the shipped
+0.01 eV. So the energy comparison protects most of that population rather than
+all of it, and widening to the windows above would cost 6 times as many pairs
+for AIMNet2 and 3 or 4 times as many for ANI2x -- but only 1.5 times as many
+for ANI2xt, whose 0.011 eV window is essentially the shipped 0.010 and is the
+one engine for which widening buys almost nothing either way. A surviving
 duplicate pair is visible and one of the two can be dropped; a merged pair is
-not. The measurement and that
-reading are written up in
-``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+not. The spreads and that reading are written up in
+``benchmarks/results-notes/2026-10-16-batch-noise.md``, the gaps in
+``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
 
 Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
 composition. That removes composition as a variable but not the spread: with

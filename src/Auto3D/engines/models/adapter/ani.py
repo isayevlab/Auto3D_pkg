@@ -176,12 +176,18 @@ class ANI2xAdapter(BaseModelAdapter):
     # steps apart (1.95e-02 eV, 0.45 kcal/mol; its arrangements agree to at
     # most 0.1023 A heavy-atom RMSD, and that molecule's only hydrogen-only
     # rotors cost several kcal/mol, so it is one basin), so such a pair
-    # survives deduplication as two
-    # near-degenerate copies -- which is visible in the output and correctable,
-    # unlike a merged rotamer, and preferred to a window of 0.098 eV (3.8 kT at
-    # 298 K) that five times this floor would ask for. The step doubles with
-    # each doubling of |E|. See
-    # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+    # survives deduplication as two near-degenerate copies -- visible in the
+    # output and correctable, unlike a merged rotamer, and preferred to a
+    # window of 0.098 eV (3.8 kT at 298 K) that five times this floor would
+    # ask for: of the 13 distinct pairs this engine's heavy-atom criterion
+    # cannot separate, measured on 2026-10-19 over three repeats, 4 or 5 sit
+    # below that window -- 3 or 4 of the 12 whose polar hydrogens moved to
+    # another rotor well -- against the 2 (1 on that cut) this constant
+    # merges. Both counts take two values because one pair, salbutamol 64/80,
+    # sits at 0.296 A against the 0.300 A RMSD threshold and crosses it on the
+    # optimizer's own noise. The step doubles with each doubling of |E|. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and
+    # ``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2x adapter.

@@ -508,3 +508,37 @@ are not independent evidence; nothing here separates run-to-run variation
 from composition beyond those two cuts. Two different starts that fall into
 one minimum are bounded by the same force gate, but are not what was
 measured.
+
+## 10. Addendum, 2026-10-20: the rotamer band has since been measured
+
+Nothing above is changed by this; the body and every number in it stand as
+recorded on 2026-10-16. Two statements in it have since been overtaken, and
+this says so rather than editing them.
+
+The "roughly 0.5 to 1.5 kcal/mol (0.022 to 0.065 eV)" that section 5's reading
+quotes for hydroxyl-rotamer splittings was uncited when this note was written.
+It has now been measured, in
+`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`: over three
+repeats of a 164-conformer production pool, the gaps between optimized
+conformers that the duplicate filter's heavy-atom criterion already calls
+identical span 0.17 to 5.5 kcal/mol over 12 distinct pairs for AIMNet2 (median
+1.3), 0.04 to 4.3 over 11 for ANI2xt (median 0.5) and 0.09 to 7.2 over 13 for
+ANI2x (median 2.4). The old band is narrower than all three spans and nested
+inside each of them; it contains two of the three medians and sits below the
+third.
+
+Section 7's second point says that "no measurement in this repository bounds"
+how close two DIFFERENT minima can be. The later note **samples** that
+quantity, which the sentence above was written for the absence of -- but it
+does not bound it: a 12-pair sample shows that two different minima can land
+at least as close as 0.0018 eV, and places no floor under how close they can
+get, which is the direction a tolerance-setter needs. The hedge in the
+retired sentence was correct in that respect.
+
+The conclusion section 5 reached is unaffected and is strengthened. Of the
+pairs whose polar hydrogens moved to another rotor well, each per-engine
+window computed here would merge 6 of AIMNet2's 12 distinct pairs, 3 of
+ANI2xt's 10 and 3 or 4 of ANI2x's 12, against 1, 2 and 1 for the shipped
+tolerance. The one sub-claim the later measurement contradicts is that
+ANI2xt's 0.011 eV sits below the band; 3 of its 10 polar-rotor pairs sit below
+that window, and 4 of its 11 pairs overall.

@@ -372,14 +372,18 @@ class TestTheShippedAdaptersKeepTheSharedDuplicateEnergyTolerance:
     sets one: the 2026-10-16 measurement
     (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors that
     moved by 1.4x and 2.5x between two runs an hour apart, so five times the
-    largest of three draws is not a bound on the quantity, and the values that
-    rule produced for AIMNet2 and ANI2x (0.050 and 0.098 eV) are 1.9 and 3.8
-    times kT at 298 K (0.0257 eV) and overlap typical hydroxyl-rotamer
-    splittings of roughly 0.5 to 1.5 kcal/mol (0.022 to 0.065 eV), which the
-    energy half of the duplicate test exists to protect: 0.050 eV
-    (1.15 kcal/mol) sits inside that band and 0.098 eV (2.26 kcal/mol) above
-    it. ANI2xt's (0.011 eV, 0.25 kcal/mol) sits below the band and is within
-    rounding of the constant.
+    largest of three draws is not a bound on the quantity, and every value
+    that rule produced (0.050, 0.011 and 0.098 eV, which are 1.9, 0.4 and 3.8
+    times kT at 298 K, 0.0257 eV) reaches well into the gaps the energy half
+    of the duplicate test exists to protect
+    (``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``: 12, 11 and
+    13 distinct RMSD-passing pairs, spanning 0.17 to 5.5, 0.04 to 4.3 and 0.09
+    to 7.2 kcal/mol, over three repeats of a pool two of whose ten molecules
+    produced every pair). Of the pairs whose polar hydrogens moved to another
+    rotor well, those windows merge 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in
+    every repeat and 3 or 4 of ANI2x's 12 depending on the repeat, against 1,
+    2 and 1 for the shipped constant, which ANI2xt's 0.011 eV is also within
+    rounding of.
 
     Both halves are asserted, because they fail differently: the resolved
     value is what a run deduplicates with, and the absence of a class-level
