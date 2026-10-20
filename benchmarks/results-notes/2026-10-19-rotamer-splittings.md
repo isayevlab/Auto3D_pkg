@@ -273,15 +273,15 @@ the counts are what the shipped text now carries in its place.
    rare. A set chosen to produce more of them would be a different measurement
    of a different population.
 3. **These are not pure hydrogen rotamers.** The heavy-atom RMSD of the
-   salbutamol pairs runs from 0.139 to 0.297 A across the three engines against
-   a 0.3 A threshold: they are pairs the filter calls identical, not pairs
-   that are identical. Their all-atom RMSD runs 0.393 to 0.638 A and their
-   polar torsions differ by 103.2 to 174.4 degrees -- the per-engine ranges
-   are printed by the appendix -- so a hydroxyl or amine hydrogen has
-   genuinely moved, but so, a little, has the skeleton. The population the energy criterion sees is
-   exactly this one, which is why it is the population measured; the stronger
-   claim, that these pairs differ *only* in a polar hydrogen, is not what the
-   numbers support.
+   salbutamol pairs runs from 0.139 to 0.297 A across the three engines
+   against a 0.3 A threshold: they are pairs the filter calls identical, not
+   pairs that are identical. Their all-atom RMSD runs 0.393 to 0.638 A and
+   their polar torsions differ by 103.2 to 174.4 degrees -- the per-engine
+   ranges are printed by the appendix -- so a hydroxyl or amine hydrogen has
+   genuinely moved, but so, a little, has the skeleton. The population the
+   energy criterion sees is exactly this one, which is why it is the
+   population measured; the stronger claim, that these pairs differ *only* in
+   a polar hydrogen, is not what the numbers support.
 4. **The torsion discriminator is not symmetry-aware, and `GetBestRMS` is.**
    The torsion change is computed on fixed atom indices, so a molecule with
    two equivalent arms -- diethanolamine has two -- can show a large torsion
@@ -313,11 +313,12 @@ the counts are what the shipped text now carries in its place.
    whether to *widen*: widening merges strictly more. A reader should not have
    to recompute it.
 7. **The engines disagree about the same pairs, by more than their noise.**
-   diethanolamine 17/39 is 0.0018 eV apart under ANI2xt, 0.0393 eV under
-   AIMNet2 and 0.2520 eV under ANI2x -- a factor of 141, the largest of the
-   six pairs all three engines found. A gap is a property of the engine's potential energy
-   surface, not of the molecule alone, which is why the figures are recited
-   per engine and why no engine's number is carried across to another.
+   diethanolamine 17/39 is 0.00179 eV apart under ANI2xt, 0.03931 eV under
+   AIMNet2 and 0.25195 eV under ANI2x -- a factor of 141, the largest of the
+   six pairs all three engines found. A gap is a property of the engine's
+   potential energy surface, not of the molecule alone, which is why the
+   figures are recited per engine and why no engine's number is carried
+   across to another.
 8. **One AIMNet2 registry model was measured.** The engine run is the default
    `aimnet2`, while `AIMNet2Adapter` also serves `aimnet2-2025`,
    `aimnet2-nse` and `aimnet2-pd`. Nothing engine-specific ships, so no
@@ -400,8 +401,9 @@ barrier of any height; the filter sees only the gap.
 
 **No comparison was made against quantum chemistry or experiment.** Every
 number is the engine's own potential energy surface, and the three disagree:
-of the six pairs all three engines found, diethanolamine 17/39 is 0.04, 0.91
-and 5.81 kcal/mol under ANI2xt, AIMNet2 and ANI2x -- a factor of 141. This
+of the six pairs all three engines found, diethanolamine 17/39 is 0.0412,
+0.907 and 5.81 kcal/mol under ANI2xt, AIMNet2 and ANI2x -- a factor of 141.
+This
 matters because the text these figures replace read as a statement about
 chemistry, and these are statements about three models of it. A reference
 calculation would say which, if any, is right; none was run.
@@ -770,11 +772,15 @@ for k in sorted(shared):
         g = [p["gap_ev"] for p in entry["pairs"] if key(p) == k]
         medians[engine] = float(np.median(g)) * EV_TO_KCAL
     ratio = max(medians.values()) / min(medians.values())
-    shown = f"{ratio:.0f}x" if ratio >= 10 else f"{ratio:.1f}x"
+    # Three significant figures on the cells AND on the ratio, not two
+    # decimals: at two decimals a gap of 0.041 kcal/mol prints as 0.04, and a
+    # reader dividing the printed operands gets 145 where the unrounded
+    # medians give 141. Significant figures keep the row self-consistent at
+    # every magnitude.
     print(
         f"  {k[1]}/{k[2]}: "
-        + ", ".join(f"{e} {v:.2f}" for e, v in medians.items())
-        + f" kcal/mol, spread {shown}"
+        + ", ".join(f"{e} {v:.3g}" for e, v in medians.items())
+        + f" kcal/mol, spread {ratio:.3g}x"
     )
 
 print(f"\ndecision: {record['decision']}")
@@ -924,11 +930,11 @@ the old band against each engine's span:
   ANI2x: span 0.0039-0.3105 eV, median 0.1035; old band 0.0217-0.0650 eV is narrower, does not contain it, nested inside the span
 
 pairs every engine found: 6
-  diethanolamine_17/diethanolamine_39: AIMNET 0.91, ANI2xt 0.04, ANI2x 5.81 kcal/mol, spread 141x
-  diethanolamine_24/diethanolamine_35: AIMNET 0.98, ANI2xt 0.10, ANI2x 0.16 kcal/mol, spread 9.9x
-  diethanolamine_8/diethanolamine_27: AIMNET 3.63, ANI2xt 0.23, ANI2x 0.45 kcal/mol, spread 16x
-  salbutamol_13/salbutamol_57: AIMNET 0.17, ANI2xt 0.35, ANI2x 2.30 kcal/mol, spread 14x
-  salbutamol_6/salbutamol_49: AIMNET 2.58, ANI2xt 3.77, ANI2x 2.39 kcal/mol, spread 1.6x
+  diethanolamine_17/diethanolamine_39: AIMNET 0.907, ANI2xt 0.0412, ANI2x 5.81 kcal/mol, spread 141x
+  diethanolamine_24/diethanolamine_35: AIMNET 0.98, ANI2xt 0.0994, ANI2x 0.158 kcal/mol, spread 9.86x
+  diethanolamine_8/diethanolamine_27: AIMNET 3.63, ANI2xt 0.234, ANI2x 0.45 kcal/mol, spread 15.5x
+  salbutamol_13/salbutamol_57: AIMNET 0.168, ANI2xt 0.348, ANI2x 2.3 kcal/mol, spread 13.7x
+  salbutamol_6/salbutamol_49: AIMNET 2.58, ANI2xt 3.77, ANI2x 2.39 kcal/mol, spread 1.58x
   salbutamol_9/salbutamol_37: AIMNET 5.48, ANI2xt 4.34, ANI2x 5.63 kcal/mol, spread 1.3x
 
 decision: {'engines_read': ['AIMNET', 'ANI2x', 'ANI2xt'], 'engines_without_a_distribution': [], 'existing_argument_stands_for': ['AIMNET', 'ANI2x', 'ANI2xt'], 'reopens_shipped_tolerance': False}
