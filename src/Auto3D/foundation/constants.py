@@ -176,16 +176,25 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
 # adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
 # hour apart, so five times the largest of three draws is a draw and not a
-# bound on the quantity. And a window of that width overlaps the hydroxyl and
-# amine rotamer splittings the energy half of this test exists to protect,
-# roughly 0.5 to 1.5 kcal/mol: the AIMNet2 value (1.15 kcal/mol, 1.9 kT at
-# 298 K) sits inside that range and the ANI2x one (2.26 kcal/mol, 3.8 kT)
-# above it, while ANI2xt's 0.011 eV is 0.43 kT and within rounding of this
+# bound on the quantity. And a window of that width merges hydroxyl and
+# amine rotamer pairs the energy half of this test exists to protect. How far
+# apart those sit was measured on 2026-10-19, over three repeats of a
+# 164-conformer production pool from ten hydroxyl- and amine-bearing
+# molecules, two of which produced every pair: the gaps between conformers the
+# heavy-atom criterion already calls identical have an interquartile range of
+# 0.042 to 0.152 eV (0.96 to 3.5 kcal/mol) for AIMNet2, 0.004 to 0.098 eV
+# (0.10 to 2.3 kcal/mol) for ANI2xt and 0.063 to 0.244 eV (1.4 to
+# 5.6 kcal/mol) for ANI2x. Each per-engine window stands above its own
+# engine's lower quartile and would merge 18 of those 36 AIMNet2 pairs, 12 of
+# 33 ANI2xt pairs and 13 of 37 ANI2x pairs: the AIMNet2 value is 1.9 kT at
+# 298 K and the ANI2x one 3.8 kT, while ANI2xt's 0.011 eV is 0.43 kT and
+# within rounding of this
 # constant -- which would buy false positives (a merged rotamer, silent and
 # irreversible) to
 # reduce false negatives that are intrinsic to any finite window and that a
-# user can see and correct. The measurement, both samples and that reading:
-# benchmarks/results-notes/2026-10-16-batch-noise.md.
+# user can see and correct. The floors, both samples and that reading:
+# benchmarks/results-notes/2026-10-16-batch-noise.md. The gaps:
+# benchmarks/results-notes/2026-10-19-rotamer-splittings.md.
 #
 # The accepted cost is on ANI2x, whose measured floor is twice this value: its
 # float32 total energy is quantized at 3.91e-3 eV near |E| ~ 3.9e4 eV (the step

@@ -41,10 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.26 kcal/mol) -- was computed and rejected: the spreads themselves moved by
   1.4x and 2.5x between two runs an hour apart, and the AIMNet2 and ANI2x
   windows would merge conformers that differ only in a hydroxyl or amine
-  hydrogen orientation, whose splittings are roughly 0.5 to 1.5 kcal/mol and
+  hydrogen orientation, whose splittings were later measured at an
+  interquartile range of 0.96 to 3.5 kcal/mol for AIMNet2, 0.10 to 2.3 for
+  ANI2xt and 1.4 to 5.6 for ANI2x
+  (`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`) and
   which the energy half of this test exists to keep apart, while ANI2xt's
-  0.011 eV (0.25 kcal/mol) sits below that band and is within rounding of the
-  constant. The measurement and that
+  0.011 eV (0.25 kcal/mol) sits inside its own band and is within rounding of
+  the constant. The measurement and that
   reading are written up in
   `benchmarks/results-notes/2026-10-16-batch-noise.md`.
   Known limitation: ANI2x's measured spread is twice the tolerance (its total

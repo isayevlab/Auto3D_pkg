@@ -79,11 +79,16 @@ class BaseModelAdapter(ABC, nn.Module):
     #: ``DEFAULT_DUPLICATE_ENERGY_TOL``, and none overrides it: the
     #: 2026-10-16 measurement of the three bundled engines
     #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
-    #: that moved between two runs an hour apart, and the per-engine values it
-    #: computed for AIMNet2 and ANI2x (0.050 and 0.098 eV, 1.9 and 3.8 times
-    #: kT at 298 K) reach into and past the hydroxyl-rotamer splittings the
-    #: energy half of the duplicate test protects, roughly 0.5 to 1.5
-    #: kcal/mol; the third (ANI2xt, 0.011 eV) is within rounding of this
+    #: that moved between two runs an hour apart, and every per-engine value
+    #: it computed (0.050, 0.011 and 0.098 eV for AIMNet2, ANI2xt and ANI2x;
+    #: 1.9, 0.4 and 3.8 times kT at 298 K) stands above its own engine's
+    #: lower quartile of the gaps the energy half of the duplicate test
+    #: protects, and would merge 18 of 36, 12 of 33 and 13 of 37 of the pairs
+    #: measured on 2026-10-19
+    #: (``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``:
+    #: interquartile ranges 0.042 to 0.152, 0.004 to 0.098 and 0.063 to
+    #: 0.244 eV, over three repeats of a pool two of whose ten molecules
+    #: produced every pair). ANI2xt's 0.011 eV is also within rounding of this
     #: constant. The attribute is here so that an adapter
     #: class CAN carry its own value, for a backend whose spread has been
     #: measured; setting it on a subclass changes only that adapter's runs.

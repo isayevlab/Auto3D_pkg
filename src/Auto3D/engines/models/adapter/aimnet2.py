@@ -49,17 +49,22 @@ class AIMNet2Adapter(BaseModelAdapter):
     # constant. That row is salbutamol: its arrangements agree to 0.0647 A
     # heavy-atom RMSD, the duplicate filter's own criterion, but the molecule
     # carries hydroxyl and amine hydrogens whose alternative orientations are
-    # close in energy, so an O-H rotamer or N-H invertomer pair is not
-    # excluded (the next case, 4.0e-03 eV, has no such rotor). The spread was
+    # distinct minima, so an O-H rotamer or N-H invertomer pair is not
+    # excluded (the next case, 4.0e-03 eV, has no such rotor). Measured under
+    # this engine on 2026-10-19, salbutamol's own pairs that the heavy-atom
+    # criterion calls identical sit 0.0073 to 0.238 eV apart (0.17 to
+    # 5.5 kcal/mol, 27 pairs over three repeats). The spread was
     # also 1.4x above its own reading an hour earlier, so a value built on it
     # would be built on a draw rather than a bound -- and five times it,
-    # 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), overlaps typical
-    # hydroxyl-rotamer splittings of roughly 0.5 to 1.5 kcal/mol, which the
-    # energy half of the duplicate test exists to keep apart (ANI2xt's
-    # 0.011 eV, 0.25 kcal/mol, sits below that band). That matters here
+    # 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), stands above this engine's
+    # measured lower quartile and would merge 18 of the 36 such pairs, which
+    # the energy half of the duplicate test exists to keep apart: their
+    # interquartile range is 0.042 to 0.152 eV (0.96 to 3.5 kcal/mol). That
+    # matters here
     # because this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``
     # and ``aimnet2-pd`` while only the default model was measured. See
-    # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and
+    # ``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
 
     def __init__(
         self,

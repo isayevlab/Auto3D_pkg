@@ -597,16 +597,25 @@ energy. The AIMNet2 spread (9.9e-3 eV) sits just inside the tolerance, close
 enough that another run can land outside it; the ANI2xt spread (2.1e-3 eV) is
 a fifth of it. The tolerance is deliberately not widened to cover those
 spreads: five times them would be 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
-2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and the AIMNet2 and
-ANI2x windows would also merge two genuinely distinct conformers that differ
-only in where a hydroxyl or amine hydrogen points, whose splittings are
-roughly 0.5 to 1.5 kcal/mol, which heavy-atom RMSD cannot tell apart and which
-the energy comparison is there to protect; ANI2xt's 0.011 eV (0.25 kcal/mol)
-sits below that band and is within rounding of the tolerance. A surviving
+2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and every one of those
+three windows would also merge two genuinely distinct conformers that differ
+in where a hydroxyl or amine hydrogen points, which heavy-atom RMSD cannot
+tell apart and which the energy comparison is there to protect. How far apart
+such pairs sit was measured on 2026-10-19: over three repeats of a
+164-conformer pool, the gaps between conformers the heavy-atom criterion
+already calls identical have an interquartile range of 0.042 to 0.152 eV
+(0.96 to 3.5 kcal/mol) for AIMNet2, 0.004 to 0.098 eV (0.10 to 2.3 kcal/mol)
+for ANI2xt and 0.063 to 0.244 eV (1.4 to 5.6 kcal/mol) for ANI2x, and the
+three windows above would merge 18 of 36, 12 of 33 and 13 of 37 of them. Two
+of the ten molecules in that set produced every pair, and ANI2xt's 0.011 eV is
+within rounding of the tolerance besides. The 0.01 eV tolerance itself merges
+a few of those pairs (3, 9 and 6 respectively), so the energy comparison
+protects the bulk of this population rather than all of it -- and each of the
+three windows would cost several times as many. A surviving
 duplicate pair is visible and one of the two can be dropped; a merged pair is
-not. The measurement and that
-reading are written up in
-``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+not. The spreads and that reading are written up in
+``benchmarks/results-notes/2026-10-16-batch-noise.md``, the gaps in
+``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
 
 Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
 composition. That removes composition as a variable but not the spread: with

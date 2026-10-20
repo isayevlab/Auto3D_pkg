@@ -100,6 +100,39 @@ def test_measure_batch_noise_builds_its_parser_through_the_shared_helper():
     assert not own_arguments.intersection({"--reps", "--limit", "--out", "--device", "--engines"})
 
 
+def test_measure_rotamer_splittings_builds_its_parser_through_the_shared_helper():
+    """The rotamer script does not spell the shared arguments its own way.
+
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` are
+    spelled once, in ``bench_optimization_perf.bench_arg_parser``, so two runs
+    of two scripts are invoked alike. A local ``add_argument`` for one of them
+    would be free to drift -- a different default, a missing type -- with
+    nothing to catch it until someone compared two records that were not
+    measured the same way.
+    """
+    tree = ast.parse((REPO / "benchmarks" / "measure_rotamer_splittings.py").read_text())
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "bench_arg_parser"
+    ]
+    assert len(calls) == 1
+    (call,) = calls
+    keywords = {k.arg: k.value for k in call.keywords}
+    # The value, not just the keyword: the splitting distribution is read
+    # across repeats, so a default of 1 would report a distribution from a
+    # single pass under the same name.
+    assert isinstance(keywords["reps"], ast.Constant)
+    assert keywords["reps"].value == 3
+    own_arguments = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_argument":
+            first = node.args[0] if node.args else None
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                own_arguments.add(first.value)
+    assert not own_arguments.intersection({"--reps", "--limit", "--out", "--device", "--engines"})
+
+
 def _batch_noise_module():
     """Import the batch-noise script, which lives outside the package.
 
