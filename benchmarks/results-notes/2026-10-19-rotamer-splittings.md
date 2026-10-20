@@ -24,8 +24,11 @@
   run applies when the user passes nothing.
 - **Commit:** `env.commit` is `c32bf90` on `bench/rotamer-splittings`, with
   `env.dirty_tree` **true**: the measurement script was uncommitted while it
-  ran and is committed beside this note. The 2026-10-16 batch-noise run was in
-  the same position.
+  ran and is committed beside this note. It has since gained one line -- the
+  `--limit` value in the smoke-run usage example of its module docstring --
+  so the script at HEAD differs from the one that produced this record by
+  that line and by no code. The 2026-10-16 batch-noise run was in the same
+  position.
 - **Molecule set:** the ten hydroxyl- and amine-bearing molecules in
   `benchmarks/measure_rotamer_splittings.py::ROTOR_MOLECULES`. salbutamol and
   glycerol are also in the 24-molecule bench set the 2026-10-16 note was
@@ -230,11 +233,12 @@ constant.
    produce more of them would be a different measurement of a different
    population.
 2. **These are not pure hydrogen rotamers.** The heavy-atom RMSD of the
-   salbutamol pairs runs from 0.139 to 0.297 A against a 0.3 A threshold: they
-   are pairs the filter calls identical, not pairs that are identical. Their
-   all-atom RMSD runs 0.39 to 0.64 A and their polar torsions differ by 103 to
-   175 degrees, so a hydroxyl or amine hydrogen has genuinely moved -- but so,
-   a little, has the skeleton. The population the energy criterion sees is
+   salbutamol pairs runs from 0.139 to 0.297 A across the three engines against
+   a 0.3 A threshold: they are pairs the filter calls identical, not pairs
+   that are identical. Their all-atom RMSD runs 0.393 to 0.638 A and their
+   polar torsions differ by 103.2 to 174.4 degrees -- the per-engine ranges
+   are printed by the appendix -- so a hydroxyl or amine hydrogen has
+   genuinely moved, but so, a little, has the skeleton. The population the energy criterion sees is
    exactly this one, which is why it is the population measured; the stronger
    claim, that these pairs differ *only* in a polar hydrogen, is not what the
    numbers support.
@@ -416,6 +420,19 @@ for engine, entry in record["engines"].items():
     ]
     print("  " + line("polar-rotor subset", rotamer))
     print(f"  pairs per molecule: {entry['per_molecule_pairs']}")
+    for mol in sorted({p["molecule"] for p in pairs}):
+        rows = [p for p in pairs if p["molecule"] == mol]
+        print(
+            f"  {mol}: {len(rows)} pairs, gap "
+            f"{min(r['gap_ev'] for r in rows):.4f}-{max(r['gap_ev'] for r in rows):.4f} eV "
+            f"({min(r['gap_ev'] for r in rows) * EV_TO_KCAL:.2f}-"
+            f"{max(r['gap_ev'] for r in rows) * EV_TO_KCAL:.2f} kcal/mol), heavy RMSD "
+            f"{min(r['heavy_rmsd'] for r in rows):.3f}-{max(r['heavy_rmsd'] for r in rows):.3f} A, "
+            f"all-atom RMSD {min(r['all_atom_rmsd'] for r in rows):.3f}-"
+            f"{max(r['all_atom_rmsd'] for r in rows):.3f} A, max polar torsion "
+            f"{min(r['max_polar_torsion_deg'] for r in rows):.1f}-"
+            f"{max(r['max_polar_torsion_deg'] for r in rows):.1f} deg"
+        )
     print(
         f"  below five times the floor ({window:.3f} eV, "
         f"{window * EV_TO_KCAL:.2f} kcal/mol, {window / KT_298_EV:.1f} kT): "
@@ -464,6 +481,8 @@ pool: {'catechol': 1, '4_aminophenol': 1, 'ethylene_glycol': 3, 'ethanolamine': 
   rep 2: n 12, min 0.0073, q1 0.0417, median 0.0548, q3 0.1524, max 0.2377 eV  (IQR 0.96-3.51 kcal/mol, median 1.26 kcal/mol)
   polar-rotor subset: n 36, min 0.0073, q1 0.0417, median 0.0548, q3 0.1524, max 0.2379 eV  (IQR 0.96-3.51 kcal/mol, median 1.26 kcal/mol)
   pairs per molecule: {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 9, 'salbutamol': 27}
+  diethanolamine: 9 pairs, gap 0.0393-0.1573 eV (0.91-3.63 kcal/mol), heavy RMSD 0.093-0.182 A, all-atom RMSD 0.517-0.537 A, max polar torsion 105.8-147.7 deg
+  salbutamol: 27 pairs, gap 0.0073-0.2379 eV (0.17-5.49 kcal/mol), heavy RMSD 0.188-0.292 A, all-atom RMSD 0.407-0.559 A, max polar torsion 103.2-174.4 deg
   below five times the floor (0.050 eV, 1.15 kcal/mol, 1.9 kT): 18 of 36
   below the shipped tolerance (0.010 eV, 0.23 kcal/mol): 3 of 36
   clauses: lower quartile 0.04171 eV; below five times the floor True; above the shipped tolerance True
@@ -489,6 +508,8 @@ pool: {'catechol': 1, '4_aminophenol': 1, 'ethylene_glycol': 3, 'ethanolamine': 
   rep 2: n 11, min 0.0018, q1 0.0073, median 0.0223, q3 0.0899, max 0.1883 eV  (IQR 0.17-2.07 kcal/mol, median 0.51 kcal/mol)
   polar-rotor subset: n 30, min 0.0018, q1 0.0101, median 0.0287, q3 0.0981, max 0.1883 eV  (IQR 0.23-2.26 kcal/mol, median 0.66 kcal/mol)
   pairs per molecule: {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 18, 'salbutamol': 15}
+  diethanolamine: 18 pairs, gap 0.0018-0.0981 eV (0.04-2.26 kcal/mol), heavy RMSD 0.070-0.295 A, all-atom RMSD 0.156-0.690 A, max polar torsion 8.4-136.0 deg
+  salbutamol: 15 pairs, gap 0.0151-0.1883 eV (0.35-4.34 kcal/mol), heavy RMSD 0.177-0.277 A, all-atom RMSD 0.409-0.636 A, max polar torsion 113.0-164.3 deg
   below five times the floor (0.011 eV, 0.25 kcal/mol, 0.4 kT): 12 of 33
   below the shipped tolerance (0.010 eV, 0.23 kcal/mol): 9 of 33
   clauses: lower quartile 0.00448 eV; below five times the floor True; above the shipped tolerance False
@@ -513,6 +534,8 @@ pool: {'catechol': 1, '4_aminophenol': 1, 'ethylene_glycol': 3, 'ethanolamine': 
   rep 2: n 12, min 0.0039, q1 0.0752, median 0.1045, q3 0.2461, max 0.3105 eV  (IQR 1.73-5.68 kcal/mol, median 2.41 kcal/mol)
   polar-rotor subset: n 34, min 0.0068, q1 0.0938, median 0.1055, q3 0.2493, max 0.3105 eV  (IQR 2.16-5.75 kcal/mol, median 2.43 kcal/mol)
   pairs per molecule: {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 12, 'salbutamol': 25}
+  diethanolamine: 12 pairs, gap 0.0039-0.2520 eV (0.09-5.81 kcal/mol), heavy RMSD 0.061-0.105 A, all-atom RMSD 0.087-0.543 A, max polar torsion 4.5-154.5 deg
+  salbutamol: 25 pairs, gap 0.0625-0.3105 eV (1.44-7.16 kcal/mol), heavy RMSD 0.139-0.297 A, all-atom RMSD 0.393-0.638 A, max polar torsion 117.5-166.6 deg
   below five times the floor (0.098 eV, 2.26 kcal/mol, 3.8 kT): 13 of 37
   below the shipped tolerance (0.010 eV, 0.23 kcal/mol): 6 of 37
   clauses: lower quartile 0.06250 eV; below five times the floor True; above the shipped tolerance True

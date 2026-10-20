@@ -57,9 +57,10 @@ class AIMNet2Adapter(BaseModelAdapter):
     # also 1.4x above its own reading an hour earlier, so a value built on it
     # would be built on a draw rather than a bound -- and five times it,
     # 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), stands above this engine's
-    # measured lower quartile and would merge 18 of the 36 such pairs, which
-    # the energy half of the duplicate test exists to keep apart: their
-    # interquartile range is 0.042 to 0.152 eV (0.96 to 3.5 kcal/mol). That
+    # measured lower quartile and would merge 18 of the 36 pairs measured
+    # for this engine across the set, which the energy half of the duplicate
+    # test exists to keep apart: their interquartile range is 0.042 to
+    # 0.152 eV (0.96 to 3.5 kcal/mol). That
     # matters here
     # because this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``
     # and ``aimnet2-pd`` while only the default model was measured. See
