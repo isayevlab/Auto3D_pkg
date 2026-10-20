@@ -440,6 +440,7 @@ def run_arm(arm: str, patterns: list[dict], batches: tuple[int, ...], device, re
     entry: dict = {"arm": arm}
     torch._dynamo.reset()
     ModelFactory.clear_cache()
+    shipped_switch = ani._PAD_INDEX_TO_QUANTUM
     ani._PAD_INDEX_TO_QUANTUM = arm == "compiled_padded"
     entry["pad_index_to_quantum"] = ani._PAD_INDEX_TO_QUANTUM
     before = dict(torch._dynamo.utils.counters.get("frames", {}))
@@ -461,6 +462,10 @@ def run_arm(arm: str, patterns: list[dict], batches: tuple[int, ...], device, re
         if device.type == "cuda":
             entry["max_memory_allocated"] = int(torch.cuda.max_memory_allocated(device))
     finally:
+        # Put the shipped setting back. Nothing after this function reads it,
+        # but a module-level flag an import-time default owns should not be
+        # left holding whichever arm happened to run last.
+        ani._PAD_INDEX_TO_QUANTUM = shipped_switch
         del adapter
         ModelFactory.clear_cache()
         gc.collect()

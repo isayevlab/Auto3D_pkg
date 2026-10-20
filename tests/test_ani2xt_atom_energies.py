@@ -423,6 +423,49 @@ class TestIndexQuantization:
         untouched = plain == 0
         assert torch.equal(padded[untouched], plain[untouched])
 
+    def test_the_adapter_actually_installs_the_wrapper(self, monkeypatch):
+        """The fast suite's guard that the fix is switched on.
+
+        ``_PAD_INDEX_TO_QUANTUM`` is one module-level boolean between the
+        shipped behavior and the recompile blowup, and flipping it to False
+        leaves the whole default suite green -- only the slow-tier recompile
+        test notices. This asserts the wiring directly: build an adapter
+        shell, hand ``_compile`` a model whose ``_atom_energies_fn`` records
+        the index sizes it is called with, and check the sizes arriving are
+        the padded ones.
+
+        ``_try_compile`` is replaced with the identity so no ``torch.compile``
+        runs and no process-global ``suppress_errors`` is flipped: what is
+        under test is the ``if`` in ``_compile``, not the compiler.
+        """
+        from Auto3D.engines.models.adapter import ani as ani_module
+        from Auto3D.engines.models.adapter.ani import ANI2xtAdapter
+
+        assert ani_module._PAD_INDEX_TO_QUANTUM is True
+        monkeypatch.setattr(ani_module, "_try_compile", lambda fn, **kwargs: fn)
+
+        seen: list[int] = []
+
+        def spy(networks, aev_flat, elem_index, n_rows):
+            seen.extend(int(idx.shape[0]) for idx in elem_index)
+            return _atom_energies(networks, aev_flat, elem_index, n_rows)
+
+        model = nn.Module()
+        model._atom_energies_fn = spy
+        adapter = ANI2xtAdapter.__new__(ANI2xtAdapter)  # bypass __init__: no torchani load
+        installed = adapter._compile(model)._atom_energies_fn
+        assert installed is not spy
+
+        species = torch.tensor([[0, 1, 2, -1, -1, -1, -1, -1]])
+        n_rows = species.numel()
+        installed(
+            _networks(),
+            _aev_for(species).reshape(n_rows, AEV_DIM),
+            element_indices(species),
+            n_rows,
+        )
+        assert seen and min(seen) >= _PAD_QUANTUM
+
     def test_the_wrapper_leaves_no_zero_or_one_sized_index(self):
         """What the whole recipe is for, asserted on the indices themselves."""
         seen: list[int] = []

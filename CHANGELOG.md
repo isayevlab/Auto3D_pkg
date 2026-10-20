@@ -17,15 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compilation and getting none. Every index tensor is now padded up to a
   positive multiple of eight rows -- the added rows point at scratch rows
   that are sliced away -- so there is no 0 and no 1 left to specialize on.
-  Measured on an NVIDIA L40S over 32 element-presence patterns, two
-  independent samples: the whole set compiles twice with nothing suppressed,
-  against nine attempts of which one was suppressed and run eager before; the
-  forward with forces is 1.17x and 1.20x eager at 64 and 256 conformers per
-  batch (95% bootstrap intervals 1.09 to 1.20 and 1.16 to 1.24) and within
-  noise of eager at 1 and 8. The padding costs one copy of the AEV block and
-  up to 56 discarded network rows per forward, and nothing reaches a run with
-  the flag off, which is the default. Energies and forces are unchanged
-  (agreement with eager 1.5e-06 eV over the pattern set). See
+  Measured on an NVIDIA L40S over 32 element-presence patterns, two sessions:
+  the whole set compiles twice with nothing suppressed, against nine attempts
+  of which one was suppressed and run eager before; the forward with forces is
+  1.07x and 1.21x eager at 64 conformers per batch in the two sessions and
+  1.18x and 1.24x at 256, and within noise of eager at 1 and 8. The two
+  sessions are given as a range because two is too few to put an interval on.
+  The padding costs one copy of the AEV block, kept for the backward pass --
+  57.5 MiB, 14.3% of peak allocation on that sweep -- and up to 56 discarded
+  network rows per forward; nothing reaches a run with the flag off, which is
+  the default. Energies agree with eager to 1.5e-06 eV over the pattern set
+  (not bit-identical: padding changes how many rows each matrix multiply
+  reduces over, which is one to two float32 ULP); forces agree to 1e-4 eV/A
+  in `tests/test_compile_values.py`. See
   `benchmarks/results-notes/2026-10-19-mark-dynamic.md`.
 
 ## [3.2.2] - 2026-10-16

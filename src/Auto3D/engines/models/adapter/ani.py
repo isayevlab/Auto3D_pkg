@@ -86,7 +86,19 @@ def _quantize_index_shapes(
     ``_PAD_QUANTUM`` extra MLP rows per element (56 at ``_PAD_QUANTUM`` 8)
     whose energies are computed and discarded. Scratch rows carry a zero AEV,
     which every network maps to a finite number, and they land in scratch
-    slots of the output that the slice below drops.
+    slots of the output that the slice below drops. The ``torch.cat``
+    duplicates the whole AEV block and autograd keeps it for the backward
+    pass, which measured as 57.5 MiB (14.3%) of extra peak allocation on the
+    32-pattern sweep, identical in every pass of both samples.
+
+    The rows that survive the slice are *not* bit-identical to the unpadded
+    result, which is the thing this docstring would otherwise imply. Each
+    network now runs over a few more rows, and a float32 matrix multiply over
+    a different row count is free to reduce in a different order: one to two
+    float32 ULP, measured at 1.47e-06 eV against eager over the pattern set
+    -- between the two readings of the unpadded compile it replaces, and
+    three decades under the tolerance ``create_model``'s construction probe
+    applies. Reordered arithmetic, not an error term that grows.
     """
 
     def padded(
@@ -127,14 +139,15 @@ class ANI2xtAdapter(BaseModelAdapter):
     0/1-specialized out of existence.
 
     What that buys, measured on one L40S over 32 element-presence patterns in
-    two independent samples
-    (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``): the compiled
-    frame stops falling back to eager (two compiles for the whole pattern set
-    instead of nine, one of which was suppressed); at 64 and 256 conformers
-    per batch it is 1.17x and 1.20x eager (95% bootstrap intervals 1.09 to
-    1.20 and 1.16 to 1.24); at 1 and 8 conformers it is within noise of
-    eager, neither faster nor slower. Those are per-forward figures on one
-    card, not a whole-run speedup -- the cold compile is paid once per
+    two sessions (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``):
+    the compiled frame stops falling back to eager (two compiles for the whole
+    pattern set instead of nine, one of which was suppressed); at 64
+    conformers per batch it is 1.07x and 1.21x eager in the two sessions, and
+    at 256 conformers 1.18x and 1.24x; at 1 and 8 conformers it is within
+    noise of eager. The two sessions are quoted as a range rather than
+    summarized, because two is too few to put an interval on and they differ
+    by more than the within-session spread. Those are per-forward figures on
+    one card, not a whole-run speedup -- the cold compile is paid once per
     process and is not in them.
     """
 

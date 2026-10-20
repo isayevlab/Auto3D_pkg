@@ -1,4 +1,4 @@
-"""P-C1: compile_model=True must not change energies. Reproduces on CPU."""
+"""compile_model=True must not change energies. Reproduces on CPU."""
 
 import itertools
 import logging
@@ -172,7 +172,20 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
             )
             adapter.forward(coord, species, charges, atom_mask=mask)
         after = counters["frames"]
-        assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)
+        total = after["total"] - before.get("total", 0)
+        assert total == after["ok"] - before.get("ok", 0)
+        # And the budget was not merely survived but barely touched. Without
+        # the bound, a partial regression that compiled once per pattern
+        # would still pass the line above -- the pattern set here is
+        # recompile_limit + 2 long, so seven fresh compiles stay under the
+        # limit and suppress nothing. Measured on CPU: ONE compile for the
+        # whole set. (The note's GPU figure of two counts the probe forward
+        # `create_model` runs at construction, which `before` is snapshotted
+        # after and which is therefore not in this delta.) The bound is one
+        # above the measured value, so an extra compile from a torch or
+        # hardware difference is tolerated and a per-pattern regression is
+        # not.
+        assert total <= 2, f"{total} compiles for the pattern set; expected 1"
     finally:
         torch._dynamo.reset()
 

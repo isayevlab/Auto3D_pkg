@@ -186,19 +186,23 @@ are present specialized the compiled frame, and past Dynamo's recompile limit
 the frame ran eager for the rest of the process with no error and no warning.
 
 Measured on an NVIDIA L40S (sm_89, driver 595.71.05, torch 2.9.1+cu128) over
-32 element-presence patterns, two independent samples, forward pass with
-forces (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``):
+32 element-presence patterns, two sessions, forward pass with forces
+(``benchmarks/results-notes/2026-10-19-mark-dynamic.md``):
 
 - the whole pattern set now compiles **twice**, with nothing suppressed,
   against nine attempts of which one was suppressed and run eager before;
-- at 64 and 256 conformers per batch, 1.17x and 1.20x eager (95% bootstrap
-  intervals 1.09 to 1.20 and 1.16 to 1.24);
-- at 1 and 8 conformers per batch, within noise of eager -- not slower, and
-  not demonstrably faster.
+- at 64 conformers per batch, 1.07x and 1.21x eager in the two sessions; at
+  256 conformers, 1.18x and 1.24x;
+- at 1 and 8 conformers per batch, within noise of eager;
+- peak allocation rises 57.5 MiB (14.3%) on that sweep, from the copy of the
+  AEV block the padding makes and autograd keeps for the backward pass.
 
-Those are per-forward figures on one card. The cold compile is not in them and
-is still paid once per process, so the break-even argument above applies
-unchanged, and the flag stays off by default.
+The two sessions are quoted as a range rather than averaged into one figure
+with an interval around it: two sessions are too few to estimate
+between-session spread, and they differ by more than the repeats within either
+of them. Those are per-forward figures on one card. The cold compile is not in
+them and is still paid once per process, so the break-even argument above
+applies unchanged, and the flag stays off by default.
 
 Batch Size Tuning
 ~~~~~~~~~~~~~~~~~
