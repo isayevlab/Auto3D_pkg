@@ -144,8 +144,8 @@ quartile reads 0.0752 / 0.0625 / 0.0752 eV.
 
 **How many pairs each window would merge, on two cuts.** The left cut is every
 distinct pair; the right is the subset whose polar hydrogens actually moved to
-another rotor well (section 5, point 3), which is the population the energy
-criterion exists for. The difference between the two is diethanolamine
+another rotor well (section 5, points 3 and 4), which is the population the
+energy criterion exists for. The difference between the two is diethanolamine
 conformers 12 and 30 -- one structure reached twice, which the filter *should*
 merge -- so the right-hand cut is the honest one wherever a sentence is about
 what the criterion fails to protect.
@@ -162,10 +162,11 @@ cut) because of the boundary pair named above.
 
 **What that costs, as a ratio.** On the rotor cut, widening from the shipped
 0.01 eV to the five-times window merges 6 times as many pairs for AIMNet2 and
-4 times as many for ANI2x, but only 1.5 times as many for ANI2xt -- whose
-0.011 eV window is essentially the shipped 0.010 and changes almost nothing in
-either direction. "Several times as many" is true of two engines of three and
-is not a statement to make about all three.
+3 or 4 times as many for ANI2x -- the same boundary pair hedges the ratio that
+hedges its numerator -- but only 1.5 times as many for ANI2xt, whose 0.011 eV
+window is essentially the shipped 0.010 and changes almost nothing in either
+direction. "Several times as many" is true of two engines of three and is not
+a statement to make about all three.
 
 **The polar-rotor subset, and the near-pure one inside it.** The 60-degree
 rotor cut -- the midpoint between no change and the 120 degrees between
@@ -175,13 +176,15 @@ pairs whose heavy atoms also agree to better than 0.15 A, half the duplicate
 threshold -- as close to a pure polar-hydrogen rotamer pair as this sample
 contains -- leaves **1, 3 and 4 pairs**:
 
-| engine | near-pure pairs | their gaps (eV) |
-|---|---|---|
-| AIMNet2 | 1 | 0.1572 |
-| ANI2xt | 3 | 0.0018, 0.0043, 0.0101 |
-| ANI2x | 4 | 0.0068, 0.0195, 0.2441, 0.2520 |
+| engine | near-pure pairs | their gaps (eV) | merged by the shipped 0.01 eV |
+|---|---|---|---|
+| AIMNet2 | 1 | 0.1572 | 0 of 1 |
+| ANI2xt | 3 | 0.001788, 0.004312, 0.010136 | 2 of 3 |
+| ANI2x | 4 | 0.0068, 0.0195, 0.2441, 0.2520 | 1 of 4 |
 
-Section 5, point 5 reads the ANI2xt column, which is the sharpest thing in the
+The merge column applies the filter's own test, which is a **strict**
+`abs(e_i - e_j) < energy_tol`: a pair exactly at the tolerance is kept.
+Section 5, point 6 reads the ANI2xt row, which is the sharpest thing in the
 data.
 
 Every number above, the distinct-pair tables and the bootstrap intervals are
@@ -295,19 +298,24 @@ the counts are what the shipped text now carries in its place.
    most of this population and not for all of it. That strengthens the case
    against widening -- the windows merge 6, 3 and 3-or-4 -- and it is the
    honest limit of what the criterion buys.
-6. **Under ANI2xt the protected population is the merged population.** All
-   three of that engine's near-pure polar-hydrogen rotamer pairs
-   (diethanolamine 17/39, 24/35 and 8/27) sit at 0.0018, 0.0043 and 0.0101 eV
-   -- at or below `DEFAULT_DUPLICATE_ENERGY_TOL`. For ANI2xt, on this sample,
-   the pairs the shipped sentence says the energy criterion protects are the
-   pairs it merges. Three pairs from one molecule qualifies the claim rather
+6. **Under ANI2xt the protected population is mostly the merged population.**
+   That engine's three near-pure polar-hydrogen rotamer pairs
+   (diethanolamine 17/39, 24/35 and 8/27) sit at 0.001788, 0.004312 and
+   0.010136 eV. The filter's test is a strict `<`, so the first two are
+   **merged** by `DEFAULT_DUPLICATE_ENERGY_TOL` and the third is kept -- by
+   0.000136 eV, which is smaller than this engine's own largest between-repeat
+   gap movement of 0.00021 eV, so that pair is on the boundary rather than
+   protected by any margin. For ANI2xt, on this sample, two of the three pairs
+   the shipped sentence says the energy criterion protects are pairs it
+   merges, and the third survives by less than the measurement's own
+   reproducibility. Three pairs from one molecule qualifies the claim rather
    than overturning it, and it does not bear on the decision, which is about
-   whether to *widen*: widening merges strictly more. It is the sharpest thing
-   in the data and a reader should not have to recompute it.
+   whether to *widen*: widening merges strictly more. A reader should not have
+   to recompute it.
 7. **The engines disagree about the same pairs, by more than their noise.**
    diethanolamine 17/39 is 0.0018 eV apart under ANI2xt, 0.0393 eV under
-   AIMNet2 and 0.2520 eV under ANI2x -- a factor of 145 across six pairs all
-   three engines found. A gap is a property of the engine's potential energy
+   AIMNet2 and 0.2520 eV under ANI2x -- a factor of 141, the largest of the
+   six pairs all three engines found. A gap is a property of the engine's potential energy
    surface, not of the molecule alone, which is why the figures are recited
    per engine and why no engine's number is carried across to another.
 8. **One AIMNet2 registry model was measured.** The engine run is the default
@@ -347,7 +355,7 @@ the counts are what the shipped text now carries in its place.
 - **A CPU smoke run preceded both**, on the four smallest molecules (8
   conformers) with ANI2xt and one repeat. It completed and wrote a record, and
   found **zero** RMSD-passing pairs -- which is consistent with section 5's
-  first point and is why the smoke run proves the plumbing and not the
+  second point and is why the smoke run proves the plumbing and not the
   pairing. Its record also went to a scratch path and is not committed.
 - **The tree was dirty** (`env.dirty_tree` true) at `c32bf90`: the measurement
   script was uncommitted while it ran and is committed beside this note. No
@@ -393,7 +401,7 @@ barrier of any height; the filter sees only the gap.
 **No comparison was made against quantum chemistry or experiment.** Every
 number is the engine's own potential energy surface, and the three disagree:
 of the six pairs all three engines found, diethanolamine 17/39 is 0.04, 0.91
-and 5.81 kcal/mol under ANI2xt, AIMNet2 and ANI2x -- a factor of 145. This
+and 5.81 kcal/mol under ANI2xt, AIMNet2 and ANI2x -- a factor of 141. This
 matters because the text these figures replace read as a statement about
 chemistry, and these are statements about three models of it. A reference
 calculation would say which, if any, is right; none was run.
@@ -524,7 +532,7 @@ def span(label, rows):
     return (
         f"{label}: {len(g)} distinct pairs, span {lo:.4f}-{hi:.4f} eV "
         f"({lo * EV_TO_KCAL:.2f}-{hi * EV_TO_KCAL:.2f} kcal/mol), median {med:.4f} eV "
-        f"({med * EV_TO_KCAL:.2f} kcal/mol)"
+        f"({med * EV_TO_KCAL:.3f} kcal/mol)"
     )
 
 
@@ -606,14 +614,23 @@ for engine, entry in record["engines"].items():
     print("  " + span("past the rotor cut", [r for r in rows if is_rotor(r)]))
     print("  " + span("near-pure polar-H", [r for r in rows if is_near_pure(r)]))
     near = [r for r in rows if is_near_pure(r)]
+    for r in near:
+        # The filter's test is a STRICT `abs(e_i - e_j) < energy_tol`, so a
+        # pair exactly at the tolerance is kept. The signed distance says
+        # which side of it each near-pure pair falls on, and the per-repeat
+        # gaps say whether that verdict is stable.
+        per_rep = [p["gap_ev"] for p in sorted(pairs, key=lambda p: p["rep"]) if key(p) == r["key"]]
+        print(
+            f"    near-pure {r['key'][1]}/{r['key'][2]}: {r['gap_ev']:.6f} eV "
+            f"(heavy {r['heavy_rmsd']:.3f} A, torsion {r['max_polar_torsion_deg']:.1f} deg), "
+            f"per repeat {[f'{v:.6f}' for v in per_rep]}, "
+            f"{r['gap_ev'] - tol:+.6f} eV against the tolerance -> "
+            f"{'merged' if r['gap_ev'] < tol else 'kept'}"
+        )
     if near:
         print(
-            "    near-pure gaps: "
-            + ", ".join(
-                f"{r['key'][1]}/{r['key'][2].rsplit('_', 1)[-1]} {r['gap_ev']:.4f} eV"
-                f" (heavy {r['heavy_rmsd']:.3f} A, torsion {r['max_polar_torsion_deg']:.1f} deg)"
-                for r in near
-            )
+            f"    near-pure merged by the shipped tolerance (strict <): "
+            f"{sum(1 for r in near if r['gap_ev'] < tol)} of {len(near)}"
         )
 
     # Why the interquartile range is not shipped: the intervals on its edges.
@@ -656,12 +673,17 @@ for engine, entry in record["engines"].items():
                 for rep in reps
             ]
         ratio = "n/a" if below_tol == 0 else f"{below_window / below_tol:.1f}x"
+        per_rep_ratio = [
+            "n/a" if d == 0 else f"{w / d:.1f}"
+            for w, d in zip(per_rep_window, per_rep_tol, strict=True)
+        ]
         print(
             f"  [{cut_label}] below five times the floor ({window:.3f} eV, "
             f"{window * EV_TO_KCAL:.2f} kcal/mol, {window / KT_298_EV:.1f} kT): "
             f"{below_window} of {len(subset)} distinct, per repeat {per_rep_window}; "
             f"below the shipped tolerance ({tol:.3f} eV): {below_tol} of {len(subset)} "
-            f"distinct, per repeat {per_rep_tol}; window / tolerance = {ratio}"
+            f"distinct, per repeat {per_rep_tol}; window / tolerance = {ratio}, "
+            f"per repeat {per_rep_ratio}"
         )
 
     touched, n_components = components(rows)
@@ -740,13 +762,20 @@ shared = set.intersection(
 )
 print(f"\npairs every engine found: {len(shared)}")
 for k in sorted(shared):
-    cells = []
+    # The ratio divides the UNROUNDED medians. Dividing the two-decimal
+    # strings printed beside them turns 0.00179 into 0.04 and reports a
+    # spread of 145x where the record's own values give 141x.
+    medians = {}
     for engine, entry in record["engines"].items():
         g = [p["gap_ev"] for p in entry["pairs"] if key(p) == k]
-        cells.append(f"{engine} {float(np.median(g)) * EV_TO_KCAL:.2f}")
-    values = [float(c.split()[-1]) for c in cells]
-    ratio = max(values) / min(values) if min(values) > 0 else float("inf")
-    print(f"  {k[1]}/{k[2]}: " + ", ".join(cells) + f" kcal/mol, spread {ratio:.0f}x")
+        medians[engine] = float(np.median(g)) * EV_TO_KCAL
+    ratio = max(medians.values()) / min(medians.values())
+    shown = f"{ratio:.0f}x" if ratio >= 10 else f"{ratio:.1f}x"
+    print(
+        f"  {k[1]}/{k[2]}: "
+        + ", ".join(f"{e} {v:.2f}" for e, v in medians.items())
+        + f" kcal/mol, spread {shown}"
+    )
 
 print(f"\ndecision: {record['decision']}")
 for engine, entry in record["engines"].items():
@@ -783,16 +812,17 @@ old band: 0.5 to 1.5 kcal/mol = 0.0217 to 0.0650 eV
   card as this engine finished: util 0 %, 1502 MiB used, other_processes [{'pid': 361743, 'used_memory': '454 MiB'}]
   max_memory_allocated 348.7 MB, memory_reserved 545.3 MB
   converged per repeat: rep 0 164 of 164, rep 1 164 of 164, rep 2 164 of 164
-  all: 12 distinct pairs, span 0.0073-0.2377 eV (0.17-5.48 kcal/mol), median 0.0543 eV (1.25 kcal/mol)
-  past the rotor cut: 12 distinct pairs, span 0.0073-0.2377 eV (0.17-5.48 kcal/mol), median 0.0543 eV (1.25 kcal/mol)
-  near-pure polar-H: 1 distinct pairs, span 0.1572-0.1572 eV (3.63-3.63 kcal/mol), median 0.1572 eV (3.63 kcal/mol)
-    near-pure gaps: diethanolamine_8/27 0.1572 eV (heavy 0.093 A, torsion 147.7 deg)
+  all: 12 distinct pairs, span 0.0073-0.2377 eV (0.17-5.48 kcal/mol), median 0.0543 eV (1.253 kcal/mol)
+  past the rotor cut: 12 distinct pairs, span 0.0073-0.2377 eV (0.17-5.48 kcal/mol), median 0.0543 eV (1.253 kcal/mol)
+  near-pure polar-H: 1 distinct pairs, span 0.1572-0.1572 eV (3.63-3.63 kcal/mol), median 0.1572 eV (3.626 kcal/mol)
+    near-pure diethanolamine_8/diethanolamine_27: 0.157250 eV (heavy 0.093 A, torsion 147.7 deg), per repeat ['0.157250', '0.157247', '0.157250'], +0.147250 eV against the tolerance -> kept
+    near-pure merged by the shipped tolerance (strict <): 0 of 1
   bootstrap 95% intervals over the distinct pairs:
     lower quartile: 95% CI 0.0180-0.0617 eV, spanning a factor of 3.4x
     median: 95% CI 0.0409-0.1540 eV, spanning a factor of 3.8x
     upper quartile: 95% CI 0.0506-0.1809 eV, spanning a factor of 3.6x
-  [all] below five times the floor (0.050 eV, 1.15 kcal/mol, 1.9 kT): 6 of 12 distinct, per repeat [6, 6, 6]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 6.0x
-  [rotor cut] below five times the floor (0.050 eV, 1.15 kcal/mol, 1.9 kT): 6 of 12 distinct, per repeat [6, 6, 6]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 6.0x
+  [all] below five times the floor (0.050 eV, 1.15 kcal/mol, 1.9 kT): 6 of 12 distinct, per repeat [6, 6, 6]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 6.0x, per repeat ['6.0', '6.0', '6.0']
+  [rotor cut] below five times the floor (0.050 eV, 1.15 kcal/mol, 1.9 kT): 6 of 12 distinct, per repeat [6, 6, 6]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 6.0x, per repeat ['6.0', '6.0', '6.0']
   pair graph: 12 distinct pairs touch 22 of 164 conformers in 10 connected components, so a wider window could remove at most 12 of them (7.3%)
   pairs per molecule (repeat instances): {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 9, 'salbutamol': 27}
   diethanolamine: 9 pairs, gap 0.0393-0.1573 eV (0.91-3.63 kcal/mol), heavy RMSD 0.093-0.182 A, all-atom RMSD 0.517-0.537 A, max polar torsion 105.8-147.7 deg
@@ -817,16 +847,19 @@ old band: 0.5 to 1.5 kcal/mol = 0.0217 to 0.0650 eV
   card as this engine finished: util 0 %, 967 MiB used, other_processes []
   max_memory_allocated 331.3 MB, memory_reserved 463.5 MB
   converged per repeat: rep 0 164 of 164, rep 1 164 of 164, rep 2 164 of 164
-  all: 11 distinct pairs, span 0.0018-0.1883 eV (0.04-4.34 kcal/mol), median 0.0224 eV (0.52 kcal/mol)
-  past the rotor cut: 10 distinct pairs, span 0.0018-0.1883 eV (0.04-4.34 kcal/mol), median 0.0287 eV (0.66 kcal/mol)
-  near-pure polar-H: 3 distinct pairs, span 0.0018-0.0101 eV (0.04-0.23 kcal/mol), median 0.0043 eV (0.10 kcal/mol)
-    near-pure gaps: diethanolamine_17/39 0.0018 eV (heavy 0.117 A, torsion 111.6 deg), diethanolamine_24/35 0.0043 eV (heavy 0.085 A, torsion 136.0 deg), diethanolamine_8/27 0.0101 eV (heavy 0.070 A, torsion 118.4 deg)
+  all: 11 distinct pairs, span 0.0018-0.1883 eV (0.04-4.34 kcal/mol), median 0.0224 eV (0.518 kcal/mol)
+  past the rotor cut: 10 distinct pairs, span 0.0018-0.1883 eV (0.04-4.34 kcal/mol), median 0.0287 eV (0.662 kcal/mol)
+  near-pure polar-H: 3 distinct pairs, span 0.0018-0.0101 eV (0.04-0.23 kcal/mol), median 0.0043 eV (0.099 kcal/mol)
+    near-pure diethanolamine_17/diethanolamine_39: 0.001788 eV (heavy 0.117 A, torsion 111.6 deg), per repeat ['0.001786', '0.001788', '0.001789'], -0.008212 eV against the tolerance -> merged
+    near-pure diethanolamine_24/diethanolamine_35: 0.004312 eV (heavy 0.085 A, torsion 136.0 deg), per repeat ['0.004311', '0.004312', '0.004485'], -0.005688 eV against the tolerance -> merged
+    near-pure diethanolamine_8/diethanolamine_27: 0.010136 eV (heavy 0.070 A, torsion 118.4 deg), per repeat ['0.010137', '0.010135', '0.010136'], +0.000136 eV against the tolerance -> kept
+    near-pure merged by the shipped tolerance (strict <): 2 of 3
   bootstrap 95% intervals over the distinct pairs:
     lower quartile: 95% CI 0.0030-0.0287 eV, spanning a factor of 9.5x
     median: 95% CI 0.0043-0.0981 eV, spanning a factor of 22.7x
     upper quartile: 95% CI 0.0188-0.1760 eV, spanning a factor of 9.4x
-  [all] below five times the floor (0.011 eV, 0.25 kcal/mol, 0.4 kT): 4 of 11 distinct, per repeat [4, 4, 4]; below the shipped tolerance (0.010 eV): 3 of 11 distinct, per repeat [3, 3, 3]; window / tolerance = 1.3x
-  [rotor cut] below five times the floor (0.011 eV, 0.25 kcal/mol, 0.4 kT): 3 of 10 distinct, per repeat [3, 3, 3]; below the shipped tolerance (0.010 eV): 2 of 10 distinct, per repeat [2, 2, 2]; window / tolerance = 1.5x
+  [all] below five times the floor (0.011 eV, 0.25 kcal/mol, 0.4 kT): 4 of 11 distinct, per repeat [4, 4, 4]; below the shipped tolerance (0.010 eV): 3 of 11 distinct, per repeat [3, 3, 3]; window / tolerance = 1.3x, per repeat ['1.3', '1.3', '1.3']
+  [rotor cut] below five times the floor (0.011 eV, 0.25 kcal/mol, 0.4 kT): 3 of 10 distinct, per repeat [3, 3, 3]; below the shipped tolerance (0.010 eV): 2 of 10 distinct, per repeat [2, 2, 2]; window / tolerance = 1.5x, per repeat ['1.5', '1.5', '1.5']
   pair graph: 11 distinct pairs touch 21 of 164 conformers in 10 connected components, so a wider window could remove at most 11 of them (6.7%)
   pairs per molecule (repeat instances): {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 18, 'salbutamol': 15}
   diethanolamine: 18 pairs, gap 0.0018-0.0981 eV (0.04-2.26 kcal/mol), heavy RMSD 0.070-0.295 A, all-atom RMSD 0.156-0.690 A, max polar torsion 8.4-136.0 deg
@@ -850,16 +883,20 @@ old band: 0.5 to 1.5 kcal/mol = 0.0217 to 0.0650 eV
   card as this engine finished: util 0 %, 2436 MiB used, other_processes [{'pid': 362215, 'used_memory': '1372 MiB'}]
   max_memory_allocated 417.7 MB, memory_reserved 559.9 MB
   converged per repeat: rep 0 164 of 164, rep 1 164 of 164, rep 2 164 of 164
-  all: 13 distinct pairs, span 0.0039-0.3105 eV (0.09-7.16 kcal/mol), median 0.1035 eV (2.39 kcal/mol)
-  past the rotor cut: 12 distinct pairs, span 0.0068-0.3105 eV (0.16-7.16 kcal/mol), median 0.1045 eV (2.41 kcal/mol)
-  near-pure polar-H: 4 distinct pairs, span 0.0068-0.2520 eV (0.16-5.81 kcal/mol), median 0.1318 eV (3.04 kcal/mol)
-    near-pure gaps: diethanolamine_24/35 0.0068 eV (heavy 0.105 A, torsion 142.7 deg), diethanolamine_8/27 0.0195 eV (heavy 0.061 A, torsion 121.8 deg), salbutamol_9/37 0.2441 eV (heavy 0.139 A, torsion 130.6 deg), diethanolamine_17/39 0.2520 eV (heavy 0.092 A, torsion 153.9 deg)
+  all: 13 distinct pairs, span 0.0039-0.3105 eV (0.09-7.16 kcal/mol), median 0.1035 eV (2.387 kcal/mol)
+  past the rotor cut: 12 distinct pairs, span 0.0068-0.3105 eV (0.16-7.16 kcal/mol), median 0.1045 eV (2.410 kcal/mol)
+  near-pure polar-H: 4 distinct pairs, span 0.0068-0.2520 eV (0.16-5.81 kcal/mol), median 0.1318 eV (3.040 kcal/mol)
+    near-pure diethanolamine_24/diethanolamine_35: 0.006836 eV (heavy 0.105 A, torsion 142.7 deg), per repeat ['0.006836', '0.006836', '0.006836'], -0.003164 eV against the tolerance -> merged
+    near-pure diethanolamine_8/diethanolamine_27: 0.019531 eV (heavy 0.061 A, torsion 121.8 deg), per repeat ['0.019531', '0.019531', '0.019531'], +0.009531 eV against the tolerance -> kept
+    near-pure salbutamol_9/salbutamol_37: 0.244141 eV (heavy 0.139 A, torsion 130.6 deg), per repeat ['0.244141', '0.244141', '0.244141'], +0.234141 eV against the tolerance -> kept
+    near-pure diethanolamine_17/diethanolamine_39: 0.251953 eV (heavy 0.092 A, torsion 153.9 deg), per repeat ['0.251953', '0.250977', '0.251953'], +0.241953 eV against the tolerance -> kept
+    near-pure merged by the shipped tolerance (strict <): 1 of 4
   bootstrap 95% intervals over the distinct pairs:
     lower quartile: 95% CI 0.0068-0.1035 eV, spanning a factor of 15.1x
     median: 95% CI 0.0625-0.2441 eV, spanning a factor of 3.9x
     upper quartile: 95% CI 0.0996-0.2656 eV, spanning a factor of 2.7x
-  [all] below five times the floor (0.098 eV, 2.26 kcal/mol, 3.8 kT): 5 of 13 distinct, per repeat [4, 5, 4]; below the shipped tolerance (0.010 eV): 2 of 13 distinct, per repeat [2, 2, 2]; window / tolerance = 2.5x
-  [rotor cut] below five times the floor (0.098 eV, 2.26 kcal/mol, 3.8 kT): 4 of 12 distinct, per repeat [3, 4, 3]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 4.0x
+  [all] below five times the floor (0.098 eV, 2.26 kcal/mol, 3.8 kT): 5 of 13 distinct, per repeat [4, 5, 4]; below the shipped tolerance (0.010 eV): 2 of 13 distinct, per repeat [2, 2, 2]; window / tolerance = 2.5x, per repeat ['2.0', '2.5', '2.0']
+  [rotor cut] below five times the floor (0.098 eV, 2.26 kcal/mol, 3.8 kT): 4 of 12 distinct, per repeat [3, 4, 3]; below the shipped tolerance (0.010 eV): 1 of 12 distinct, per repeat [1, 1, 1]; window / tolerance = 4.0x, per repeat ['3.0', '4.0', '3.0']
   pair graph: 13 distinct pairs touch 22 of 164 conformers in 10 connected components, so a wider window could remove at most 12 of them (7.3%)
   pairs per molecule (repeat instances): {'catechol': 0, '4_aminophenol': 0, 'ethylene_glycol': 0, 'ethanolamine': 0, 'tyramine': 0, 'propylene_glycol': 0, 'serine': 0, 'glycerol': 0, 'diethanolamine': 12, 'salbutamol': 25}
   diethanolamine: 12 pairs, gap 0.0039-0.2520 eV (0.09-5.81 kcal/mol), heavy RMSD 0.061-0.105 A, all-atom RMSD 0.087-0.543 A, max polar torsion 4.5-154.5 deg
@@ -887,12 +924,12 @@ the old band against each engine's span:
   ANI2x: span 0.0039-0.3105 eV, median 0.1035; old band 0.0217-0.0650 eV is narrower, does not contain it, nested inside the span
 
 pairs every engine found: 6
-  diethanolamine_17/diethanolamine_39: AIMNET 0.91, ANI2xt 0.04, ANI2x 5.81 kcal/mol, spread 145x
-  diethanolamine_24/diethanolamine_35: AIMNET 0.98, ANI2xt 0.10, ANI2x 0.16 kcal/mol, spread 10x
+  diethanolamine_17/diethanolamine_39: AIMNET 0.91, ANI2xt 0.04, ANI2x 5.81 kcal/mol, spread 141x
+  diethanolamine_24/diethanolamine_35: AIMNET 0.98, ANI2xt 0.10, ANI2x 0.16 kcal/mol, spread 9.9x
   diethanolamine_8/diethanolamine_27: AIMNET 3.63, ANI2xt 0.23, ANI2x 0.45 kcal/mol, spread 16x
   salbutamol_13/salbutamol_57: AIMNET 0.17, ANI2xt 0.35, ANI2x 2.30 kcal/mol, spread 14x
-  salbutamol_6/salbutamol_49: AIMNET 2.58, ANI2xt 3.77, ANI2x 2.39 kcal/mol, spread 2x
-  salbutamol_9/salbutamol_37: AIMNET 5.48, ANI2xt 4.34, ANI2x 5.63 kcal/mol, spread 1x
+  salbutamol_6/salbutamol_49: AIMNET 2.58, ANI2xt 3.77, ANI2x 2.39 kcal/mol, spread 1.6x
+  salbutamol_9/salbutamol_37: AIMNET 5.48, ANI2xt 4.34, ANI2x 5.63 kcal/mol, spread 1.3x
 
 decision: {'engines_read': ['AIMNET', 'ANI2x', 'ANI2xt'], 'engines_without_a_distribution': [], 'existing_argument_stands_for': ['AIMNET', 'ANI2x', 'ANI2xt'], 'reopens_shipped_tolerance': False}
   AIMNET: lower quartile 0.04171 eV; below five times the floor True; above the shipped tolerance True; per repeat [0.04171, 0.04171, 0.04171]
