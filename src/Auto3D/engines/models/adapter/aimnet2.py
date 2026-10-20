@@ -49,19 +49,17 @@ class AIMNet2Adapter(BaseModelAdapter):
     # constant. That row is salbutamol: its arrangements agree to 0.0647 A
     # heavy-atom RMSD, the duplicate filter's own criterion, but the molecule
     # carries hydroxyl and amine hydrogens whose alternative orientations are
-    # distinct minima, so an O-H rotamer or N-H invertomer pair is not
-    # excluded (the next case, 4.0e-03 eV, has no such rotor). Measured under
-    # this engine on 2026-10-19, salbutamol's own pairs that the heavy-atom
-    # criterion calls identical sit 0.0073 to 0.238 eV apart (0.17 to
-    # 5.5 kcal/mol, 27 pairs over three repeats). The spread was
-    # also 1.4x above its own reading an hour earlier, so a value built on it
-    # would be built on a draw rather than a bound -- and five times it,
-    # 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), stands above this engine's
-    # measured lower quartile and would merge 18 of the 36 pairs measured
-    # for this engine across the set, which the energy half of the duplicate
-    # test exists to keep apart: their interquartile range is 0.042 to
-    # 0.152 eV (0.96 to 3.5 kcal/mol). That
-    # matters here
+    # distinct minima that can be close in energy -- this engine's smallest
+    # measured gap between two conformers the heavy-atom criterion cannot
+    # separate is 0.0073 eV, below that row -- so an O-H rotamer or N-H
+    # invertomer pair is not excluded (the next case, 4.0e-03 eV, has no such
+    # rotor). The spread was also 1.4x above its own reading an hour earlier,
+    # so a value built on it would be built on a draw rather than a bound --
+    # and five times it, 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), would
+    # merge 6 of the 12 distinct pairs measured for this engine on 2026-10-19,
+    # in every one of three repeats, against the 1 this constant merges; those
+    # 12 span 0.17 to 5.5 kcal/mol with a median of 1.3, and all 12 come from
+    # salbutamol and diethanolamine. That matters here
     # because this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``
     # and ``aimnet2-pd`` while only the default model was measured. See
     # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and

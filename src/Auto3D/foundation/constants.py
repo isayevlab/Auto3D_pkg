@@ -176,19 +176,21 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
 # adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
 # hour apart, so five times the largest of three draws is a draw and not a
-# bound on the quantity. And a window of that width merges hydroxyl and
-# amine rotamer pairs the energy half of this test exists to protect. How far
-# apart those sit was measured on 2026-10-19, over three repeats of a
-# 164-conformer production pool from ten hydroxyl- and amine-bearing
-# molecules, two of which produced every pair: the gaps between conformers the
-# heavy-atom criterion already calls identical have an interquartile range of
-# 0.042 to 0.152 eV (0.96 to 3.5 kcal/mol) for AIMNet2, 0.004 to 0.098 eV
-# (0.10 to 2.3 kcal/mol) for ANI2xt and 0.063 to 0.244 eV (1.4 to
-# 5.6 kcal/mol) for ANI2x. Each per-engine window stands above its own
-# engine's lower quartile and would merge 18 of those 36 AIMNet2 pairs, 12 of
-# 33 ANI2xt pairs and 13 of 37 ANI2x pairs: the AIMNet2 value is 1.9 kT at
-# 298 K and the ANI2x one 3.8 kT, while ANI2xt's 0.011 eV is 0.43 kT and
-# within rounding of this
+# bound on the quantity. And a window of that width merges pairs the
+# heavy-atom criterion cannot separate, which is what the energy half of this
+# test exists to protect -- its motivation being the hydroxyl and amine rotors
+# whose orientation that criterion cannot see at all. How far apart such pairs
+# sit was measured on 2026-10-19, over three repeats of a 164-conformer
+# production pool from ten hydroxyl- and amine-bearing molecules, two of which
+# produced every pair: 12 distinct pairs for AIMNet2 spanning 0.17 to
+# 5.5 kcal/mol with a median of 1.3, 11 for ANI2xt spanning 0.04 to 4.3 with a
+# median of 0.5, and 13 for ANI2x spanning 0.09 to 7.2 with a median of 2.4.
+# Restricted to the pairs whose polar hydrogens actually moved to another rotor
+# well, each per-engine window merges 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in
+# every one of the three repeats, and 3 or 4 of ANI2x's 12 depending on the
+# repeat, against the 1, 2 and 1 this constant merges: the AIMNet2 value is
+# 1.9 kT at 298 K and the ANI2x one 3.8 kT, while ANI2xt's 0.011 eV is 0.43 kT
+# and within rounding of this
 # constant -- which would buy false positives (a merged rotamer, silent and
 # irreversible) to
 # reduce false negatives that are intrinsic to any finite window and that a

@@ -521,16 +521,24 @@ It has now been measured, in
 `benchmarks/results-notes/2026-10-19-rotamer-splittings.md`: over three
 repeats of a 164-conformer production pool, the gaps between optimized
 conformers that the duplicate filter's heavy-atom criterion already calls
-identical have an interquartile range of 0.042 to 0.152 eV (0.96 to
-3.5 kcal/mol) for AIMNet2, 0.004 to 0.098 eV (0.10 to 2.3 kcal/mol) for ANI2xt
-and 0.063 to 0.244 eV (1.4 to 5.6 kcal/mol) for ANI2x. The old band is
-narrower than any of the three and sits below two of the three medians.
+identical span 0.17 to 5.5 kcal/mol over 12 distinct pairs for AIMNet2 (median
+1.3), 0.04 to 4.3 over 11 for ANI2xt (median 0.5) and 0.09 to 7.2 over 13 for
+ANI2x (median 2.4). The old band is narrower than all three spans and nested
+inside each of them; it contains two of the three medians and sits below the
+third.
 
 Section 7's second point says that "no measurement in this repository bounds"
-how close two DIFFERENT minima can be. **That is no longer true**, and the
-note above is the one that bounds it. The conclusion section 5 reached is
-unaffected and is strengthened: each per-engine window computed here stands
-above its own engine's lower quartile in that measurement and would merge 18
-of 36 AIMNet2 pairs, 12 of 33 ANI2xt pairs and 13 of 37 ANI2x pairs. The one
-sub-claim the later measurement contradicts is that ANI2xt's 0.011 eV sits
-below the band; 12 of its 33 pairs sit below that window.
+how close two DIFFERENT minima can be. The later note **samples** that
+quantity, which the sentence above was written for the absence of -- but it
+does not bound it: a 12-pair sample shows that two different minima can land
+at least as close as 0.0018 eV, and places no floor under how close they can
+get, which is the direction a tolerance-setter needs. The hedge in the
+retired sentence was correct in that respect.
+
+The conclusion section 5 reached is unaffected and is strengthened. Of the
+pairs whose polar hydrogens moved to another rotor well, each per-engine
+window computed here would merge 6 of AIMNet2's 12 distinct pairs, 3 of
+ANI2xt's 10 and 3 or 4 of ANI2x's 12, against 1, 2 and 1 for the shipped
+tolerance. The one sub-claim the later measurement contradicts is that
+ANI2xt's 0.011 eV sits below the band; 3 of its 10 polar-rotor pairs sit below
+that window, and 4 of its 11 pairs overall.

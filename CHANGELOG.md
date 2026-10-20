@@ -40,14 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   five times each of those spreads -- 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
   2.26 kcal/mol) -- was computed and rejected: the spreads themselves moved by
   1.4x and 2.5x between two runs an hour apart, and the AIMNet2 and ANI2x
-  windows would merge conformers that differ only in a hydroxyl or amine
-  hydrogen orientation, whose splittings were later measured at an
-  interquartile range of 0.96 to 3.5 kcal/mol for AIMNet2, 0.10 to 2.3 for
-  ANI2xt and 1.4 to 5.6 for ANI2x
-  (`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`) and
-  which the energy half of this test exists to keep apart, while ANI2xt's
-  0.011 eV (0.25 kcal/mol) sits inside its own band and is within rounding of
-  the constant. The measurement and that
+  windows would merge conformer pairs that heavy-atom RMSD cannot separate,
+  which the energy half of this test exists to keep apart and whose gaps were
+  later measured over 12, 11 and 13 distinct pairs spanning 0.17 to 5.5, 0.04
+  to 4.3 and 0.09 to 7.2 kcal/mol, medians 1.3, 0.5 and 2.4
+  (`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`), while
+  ANI2xt's 0.011 eV (0.25 kcal/mol) sits inside its own measured span and is
+  within rounding of the constant. The measurement and that
   reading are written up in
   `benchmarks/results-notes/2026-10-16-batch-noise.md`.
   Known limitation: ANI2x's measured spread is twice the tolerance (its total

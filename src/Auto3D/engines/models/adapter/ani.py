@@ -179,9 +179,12 @@ class ANI2xAdapter(BaseModelAdapter):
     # survives deduplication as two
     # near-degenerate copies -- which is visible in the output and correctable,
     # unlike a merged rotamer, and preferred to a window of 0.098 eV (3.8 kT at
-    # 298 K) that five times this floor would ask for: 13 of the 37 pairs this
-    # engine's heavy-atom criterion calls identical, measured on 2026-10-19,
-    # sit below that window, so it would merge them. The step doubles with
+    # 298 K) that five times this floor would ask for: of the 13 distinct
+    # pairs this engine's heavy-atom criterion cannot separate, measured on
+    # 2026-10-19 over three repeats, 5 sit below that window -- 3 or 4 of the
+    # 12 whose polar hydrogens moved to another rotor well, depending on the
+    # repeat -- against the 2 (1 on that cut) this constant merges. The step
+    # doubles with
     # each doubling of |E|. See
     # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and
     # ``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.

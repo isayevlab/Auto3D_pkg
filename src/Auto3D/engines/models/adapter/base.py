@@ -81,15 +81,20 @@ class BaseModelAdapter(ABC, nn.Module):
     #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
     #: that moved between two runs an hour apart, and every per-engine value
     #: it computed (0.050, 0.011 and 0.098 eV for AIMNet2, ANI2xt and ANI2x;
-    #: 1.9, 0.4 and 3.8 times kT at 298 K) stands above its own engine's
-    #: lower quartile of the gaps the energy half of the duplicate test
-    #: protects, and would merge 18 of 36, 12 of 33 and 13 of 37 of the pairs
-    #: measured on 2026-10-19
-    #: (``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``:
-    #: interquartile ranges 0.042 to 0.152, 0.004 to 0.098 and 0.063 to
-    #: 0.244 eV, over three repeats of a pool two of whose ten molecules
-    #: produced every pair). ANI2xt's 0.011 eV is also within rounding of this
-    #: constant. The attribute is here so that an adapter
+    #: 1.9, 0.4 and 3.8 times kT at 298 K) reaches well into the gaps the
+    #: energy half of the duplicate test protects
+    #: (``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``: 12, 11
+    #: and 13 distinct RMSD-passing pairs, spanning 0.17 to 5.5, 0.04 to 4.3
+    #: and 0.09 to 7.2 kcal/mol with medians of 1.3, 0.5 and 2.4, over three
+    #: repeats of a pool two of whose ten molecules produced every pair). Of
+    #: the pairs whose polar hydrogens moved to another rotor well, those
+    #: windows merge 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in every repeat
+    #: and 3 or 4 of ANI2x's 12 depending on the repeat, against 1, 2 and 1
+    #: for this constant, which ANI2xt's 0.011 eV is also within rounding of.
+    #: The AIMNet2 figures are the default ``aimnet2`` model's;
+    #: :class:`~Auto3D.engines.models.adapter.aimnet2.AIMNet2Adapter` also
+    #: serves ``aimnet2-2025``, ``aimnet2-nse`` and ``aimnet2-pd``, which have
+    #: no measurement of their own. The attribute is here so that an adapter
     #: class CAN carry its own value, for a backend whose spread has been
     #: measured; setting it on a subclass changes only that adapter's runs.
     duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL
