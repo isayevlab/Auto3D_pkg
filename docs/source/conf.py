@@ -45,7 +45,12 @@ intersphinx_disabled_domains = ['std']
 
 # External pages that rot. The weekly link check is allowed to be red; a pattern
 # goes here with the reason, never a suppression in the workflow.
-linkcheck_ignore: list[str] = []
+linkcheck_ignore: list[str] = [
+    # The Auto3D paper's DOI resolves, but pubs.acs.org answers automated
+    # clients with 403 regardless of user agent, so the check can never pass
+    # from a runner. The DOI itself is correct and is checked by hand.
+    r'https://doi\.org/10\.1021/acs\.jcim\.2c00817',
+]
 
 templates_path = ['_templates']
 
@@ -57,6 +62,17 @@ autodoc_default_options = {
     'show-inheritance': True,
 }
 
+# Sphinx writes one stub per autosummary entry into `source/generated/` on every
+# build, and `autosummary_generate_overwrite` (True by default) means it rewrites
+# any stub already sitting there. That holds under any Sphinx invocation -- the
+# documentation workflow's `make -C docs html` and Read the Docs' own
+# `sphinx-build`, which it runs itself against the configuration named in
+# `.readthedocs.yaml` -- and both start from a fresh checkout, so the stubs are
+# always the ones this configuration just generated and a checked-in copy is
+# never read. `source/generated/` is therefore build output and is ignored
+# rather than tracked; the stubs were removed from version control on
+# 2026-10-16, when seven of the tracked copies were stale and three entries had
+# no tracked copy at all.
 autosummary_generate = True
 
 # Napoleon settings for Google/NumPy docstrings

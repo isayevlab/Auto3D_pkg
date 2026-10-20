@@ -1,10 +1,10 @@
 """Tautomer enumeration preserves specified stereo without inventing any.
 
-The C2 fix disables RDKit's default stereo stripping. That is only correct if
-it preserves descriptors the user specified while still dropping descriptors
-the tautomerization genuinely destroys, and while assigning none that the
-input never had. These tests pin all three, driving Auto3D's real ``rdkit``
-tautomer engine through the production factory.
+RDKit's default stereo stripping is disabled, which is only correct if the
+enumeration preserves descriptors the user specified, still drops descriptors
+the tautomerization genuinely destroys, and assigns none that the input never
+had. These tests pin all three, driving Auto3D's real ``rdkit`` tautomer
+engine through the production factory.
 """
 
 from __future__ import annotations
@@ -105,14 +105,17 @@ class TestNoStereoIsInvented:
         )
 
     def test_a_multi_step_tautomerization_does_not_emit_the_enantiomer(self, job_dir):
-        """D-erythrose must not come back as L-erythrose.
+        """D-erythrose must not come back as L-erythrose, nor as L-erythrulose.
 
-        The 2,3-enediol flattens both centers, and RDKit restores a definite
-        tag rather than leaving them unspecified -- for one output, the input's
-        mirror image. Downstream these survive as two tautomer IDs with equal
-        energies and k=1 picks between them by file order.
+        Every route to the 2-ketose and to the enediols goes through the
+        1,2-enediol, which flattens C2, so no output may assert the input's
+        configuration there; C3 is untouched on the route to the 2-ketose, so
+        D-erythrulose is the one the enumeration keeps. No two emitted records
+        are mirror images of each other.
         """
         from rdkit import Chem
+
+        from Auto3D.domain.stereochemistry import enantiomer_key
 
         d_erythrose = "O=C[C@H](O)[C@H](O)CO"
         outputs = _run_rd_taut(job_dir, d_erythrose)
@@ -125,4 +128,17 @@ class TestNoStereoIsInvented:
         l_erythrose = Chem.MolToSmiles(Chem.MolFromSmiles("O=C[C@@H](O)[C@@H](O)CO"))
         assert l_erythrose not in canonical, (
             f"the enantiomer of the input was emitted as a tautomer: {sorted(canonical)}"
+        )
+
+        keys = [enantiomer_key(smi) for smi in outputs]
+        assert len(set(keys)) == len(keys), (
+            f"two emitted tautomers are mirror images: {sorted(canonical)}"
+        )
+        d_erythrulose = Chem.MolToSmiles(Chem.MolFromSmiles("O=C(CO)[C@H](O)CO"))
+        l_erythrulose = Chem.MolToSmiles(Chem.MolFromSmiles("O=C(CO)[C@@H](O)CO"))
+        assert d_erythrulose in canonical, (
+            f"the ketose the untouched center fixes was lost: {sorted(canonical)}"
+        )
+        assert l_erythrulose not in canonical, (
+            f"the mirror image of the ketose was emitted: {sorted(canonical)}"
         )

@@ -1487,3 +1487,148 @@ class TestRankedOutputIsWrittenAtomically:
         # Assert the directory's exact contents instead, so a leftover
         # `tmp*.sdf` sibling fails this test.
         assert sorted(p.name for p in tmp_path.iterdir()) == ["three_conformers.sdf"]
+
+
+class TestTheRankerForwardsTheDuplicateEnergyTolerance:
+    """What the ranker is told to deduplicate with reaches the filter.
+
+    The tolerance belongs to the engine that produced the energies, which the
+    ranker is handed by its caller and the filter cannot know. ``None`` is the
+    caller that has no measurement to offer, and it means the shipped
+    constant -- the behavior every existing caller of this class already has.
+    """
+
+    def test_a_given_tolerance_reaches_the_filter(self, tmp_path, monkeypatch):
+        from Auto3D.domain import ranking
+        from Auto3D.domain.filtering import FilterResult
+        from Auto3D.domain.ranking import ConformerRanker
+
+        seen: list[float] = []
+
+        def _recording_filter(mols, **kwargs):
+            seen.append(kwargs["energy_tol"])
+            return FilterResult(kept=list(mols), dropped={})
+
+        monkeypatch.setattr(ranking, "filter_conformers", _recording_filter)
+
+        # Two conformers and `k=2`: `top_k` skips the dedup entirely for
+        # `k=1` (the lowest-energy survivor needs no comparison), so a
+        # one-molecule, one-slot selection would never reach the filter and
+        # this test would pass on an empty call list.
+        input_path = str(tmp_path / "input.sdf")
+        _write_mols_to_sdf(
+            [
+                _create_mol_with_energy("C", -10.0, "mol_0_0"),
+                _create_mol_with_energy("C", -10.02, "mol_0_1"),
+            ],
+            input_path,
+        )
+
+        ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=2,
+            duplicate_energy_tol=0.04,
+        ).run()
+        assert seen == [0.04]
+
+    def test_no_tolerance_means_the_shipped_constant(self, tmp_path, monkeypatch):
+        from Auto3D.domain import ranking
+        from Auto3D.domain.filtering import FilterResult
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
+
+        seen: list[float] = []
+
+        def _recording_filter(mols, **kwargs):
+            seen.append(kwargs["energy_tol"])
+            return FilterResult(kept=list(mols), dropped={})
+
+        monkeypatch.setattr(ranking, "filter_conformers", _recording_filter)
+
+        # Two conformers and `k=2`: `top_k` skips the dedup entirely for
+        # `k=1` (the lowest-energy survivor needs no comparison), so a
+        # one-molecule, one-slot selection would never reach the filter and
+        # this test would pass on an empty call list.
+        input_path = str(tmp_path / "input.sdf")
+        _write_mols_to_sdf(
+            [
+                _create_mol_with_energy("C", -10.0, "mol_0_0"),
+                _create_mol_with_energy("C", -10.02, "mol_0_1"),
+            ],
+            input_path,
+        )
+
+        ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=2,
+        ).run()
+        assert seen == [DEFAULT_DUPLICATE_ENERGY_TOL]
+
+
+class TestAnAdaptersOwnToleranceChangesWhatSurvives:
+    """The hook is live: an adapter's value reaches the real filter.
+
+    The attribute is not plumbing for its own sake -- it exists so that an
+    adapter with a measurement of its own (a custom NNP, or a future backend)
+    can widen or narrow its runs' duplicate test, while every adapter Auto3D
+    ships keeps ``DEFAULT_DUPLICATE_ENERGY_TOL`` and so reproduces 3.2.1
+    exactly. This test runs the real ``filter_conformers`` through the ranker
+    on one pair and reads the survivors, so the two arms differ only in the
+    number the adapter carries: a stub with no such attribute (what a
+    structural adapter looks like, and what every shipped adapter resolves to)
+    keeps the pair, and the same pair merges under an adapter that carries
+    0.04 eV.
+    """
+
+    def _pair(self, tmp_path, name):
+        """Two conformers of one compound, 0.02 eV apart, same geometry.
+
+        Beyond the shipped 0.01 eV tolerance and inside 0.04 eV, so the pair
+        is the one place the two arms can disagree. ``k=2``: ``top_k`` skips
+        deduplication entirely at ``k=1``.
+        """
+        input_path = str(tmp_path / f"{name}.sdf")
+        _write_mols_to_sdf(
+            [
+                _create_mol_with_energy("CCO", -10.0, "mol_0_0"),
+                _create_mol_with_energy("CCO", -10.02, "mol_0_1"),
+            ],
+            input_path,
+        )
+        return input_path
+
+    def test_an_adapter_without_the_attribute_keeps_the_pair(self, tmp_path):
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.engines.models.contract import duplicate_energy_tol_of
+
+        class _ShippedLike:
+            """No tolerance of its own -- the shipped constant applies."""
+
+        kept = ConformerRanker(
+            input_path=self._pair(tmp_path, "narrow"),
+            out_path=str(tmp_path / "narrow-out.sdf"),
+            threshold=0.3,
+            k=2,
+            duplicate_energy_tol=duplicate_energy_tol_of(_ShippedLike()),
+        ).run()
+        assert len(kept) == 2
+
+    def test_an_adapter_that_carries_a_wider_one_merges_it(self, tmp_path):
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.engines.models.contract import duplicate_energy_tol_of
+
+        class _Measured:
+            duplicate_energy_tol = 0.04
+
+        kept = ConformerRanker(
+            input_path=self._pair(tmp_path, "wide"),
+            out_path=str(tmp_path / "wide-out.sdf"),
+            threshold=0.3,
+            k=2,
+            duplicate_energy_tol=duplicate_energy_tol_of(_Measured()),
+        ).run()
+        assert len(kept) == 1

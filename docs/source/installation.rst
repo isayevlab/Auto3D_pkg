@@ -85,7 +85,7 @@ Software <https://www.eyesopen.com/omega>`__. It can be installed by
 
 To calculate thermodynamic properties (such as Gibbs free energy,
 enthalpy, entropy, geometry optimization) with Auto3D,
-`ASE <https://wiki.fysik.dtu.dk/ase/>`__ needs to be installed:
+`ASE <https://ase-lib.org/>`__ needs to be installed:
 
 .. code:: console
 

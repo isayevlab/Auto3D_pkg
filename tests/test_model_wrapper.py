@@ -206,7 +206,7 @@ def _batch_like_test_forward_batched_retries_on_oom():
     """The 2-molecule, 3-atom batch every OOM-retry test in this module uses.
 
     Lifted out of ``test_forward_batched_retries_on_oom`` (which built it
-    inline) so P-m12's two new tests below do not each grow their own copy.
+    inline) so the tests below do not each grow their own copy.
     """
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
@@ -246,21 +246,21 @@ def test_forward_batched_retries_on_oom():
 
 
 def test_forward_batched_retries_when_the_final_cat_ooms(monkeypatch):
-    """P-m12: the final ``torch.cat`` that assembles sub-batch results is
+    """The final ``torch.cat`` that assembles sub-batch results is
     itself a GPU allocation and can OOM even when every sub-batch forward
     succeeded. One retry, after ``empty_cache()``, must cover it too.
 
-    GPU review M3 gap 1 (fix round 1): this is the headline scoping property
-    of P-m12 -- the retry must re-run only the failed concatenation, never
-    the sub-batch forward above it -- and nothing asserted it before.
+    This is the headline scoping property of that retry -- it must re-run only
+    the failed concatenation, never the sub-batch forward above it -- and
+    nothing asserted it before.
     ``batchsize_atoms=16`` over this 2-molecule, 3-atom batch is one
     sub-batch, so one ``forward`` call is the whole adapter-call budget;
     ``FakeAdapter`` records one entry in ``.calls`` per invocation, so
     counting those (rather than adding a second counting double) pins it
     directly. Three ``torch.cat`` calls: the energies concat fails once and
     succeeds on retry (2), then the forces concat succeeds outright (1) --
-    retried separately (``model_wrapper.py``'s fix round 1), so a failure on
-    the first does not re-run alongside the second.
+    retried separately in ``model_wrapper.py``, so a failure on the first does
+    not re-run alongside the second.
     """
     import torch
 
@@ -327,11 +327,10 @@ def test_forward_batched_retries_only_the_forces_cat_when_that_is_the_one_that_o
 
 
 def test_forward_batched_propagates_if_the_retry_also_ooms(monkeypatch):
-    """P-m12: a single retry covers a transient condition; a second failure
+    """A single retry covers a transient condition; a second failure
     at the same concatenation must propagate, not loop or swallow the error.
 
-    GPU review M3 gap 2 (fix round 1): no test previously drove the final
-    concatenation to fail twice in a row.
+    No test previously drove the final concatenation to fail twice in a row.
     """
     import pytest
     import torch
@@ -352,7 +351,7 @@ def test_forward_batched_propagates_if_the_retry_also_ooms(monkeypatch):
 
 
 def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():
-    """P-m12: some paths raise a bare ``RuntimeError`` whose message names the
+    """Some paths raise a bare ``RuntimeError`` whose message names the
     condition ("CUDA error: out of memory") instead of the typed
     ``torch.cuda.OutOfMemoryError``. Both must be treated the same way."""
     import torch

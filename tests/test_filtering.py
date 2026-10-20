@@ -806,3 +806,49 @@ def test_validity_drop_reason_names_the_first_failing_check(
     assert validity_drop_reason(valid_mol) is None
     assert validity_drop_reason(unconverged_mol) == "unconverged"
     assert validity_drop_reason(stereo_changed_mol) == "stereochemistry"
+
+
+class TestTheDuplicateEnergyToleranceIsAParameter:
+    """The energy half of the duplicate test is the caller's to set.
+
+    How far two optimizations of one minimum can land apart is a property of
+    the engine that produced the energies, and this layer cannot know which
+    engine that was: the number arrives as a parameter, with the shipped
+    constant as the default for a caller that has no measurement to pass.
+    Both places the tolerance is read have to honor it -- the run split, which
+    decides which pairs are compared at all, and the within-run test, which
+    decides which compared pair is a duplicate -- or a larger tolerance would
+    be announced and not applied.
+    """
+
+    def test_a_wider_tolerance_merges_a_pair_the_default_keeps(self):
+        mols = [_create_mol_with_energy("C", -10.0), _create_mol_with_energy("C", -10.02)]
+
+        # 0.02 eV apart: beyond the shipped 0.01 eV tolerance, so the pair is
+        # two conformers however identical their geometry.
+        assert len(filter_conformers(list(mols), rmsd_threshold=0.5).kept) == 2
+
+        # Same pair, one engine's measured tolerance: now a duplicate.
+        wider = filter_conformers(list(mols), rmsd_threshold=0.5, energy_tol=0.04)
+        assert len(wider.kept) == 1
+        assert wider.dropped == {"duplicate": 1}
+
+        # And through the list-returning name, which forwards it.
+        assert len(filter_unique_optimized(list(mols), rmsd_threshold=0.5, energy_tol=0.04)) == 1
+
+    def test_the_run_split_honors_the_tolerance_it_was_given(self):
+        """A pair cannot be a duplicate across a gap wider than the tolerance.
+
+        The split gap is what makes this filter cheaper than comparing all
+        pairs, and it is sound only while it is at least the tolerance the
+        within-run test uses. With a tolerance of 0.04 eV and the window left
+        at its smallest, the 0.02 eV pair below must still land in one run and
+        be compared -- if the split kept reading the constant, the two would
+        be split apart and both would survive as "distinct".
+        """
+        mols = [_create_mol_with_energy("C", -10.0), _create_mol_with_energy("C", -10.02)]
+
+        result = filter_conformers(
+            list(mols), rmsd_threshold=0.5, energy_cluster_window=0.0, energy_tol=0.04
+        )
+        assert len(result.kept) == 1

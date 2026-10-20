@@ -38,6 +38,17 @@ class ANI2xtAdapter(BaseModelAdapter):
     is claimed here because none has been measured.
     """
 
+    # No `duplicate_energy_tol` here: :class:`BaseModelAdapter` carries the
+    # attribute so that an adapter CAN deduplicate its conformers with its own
+    # number, and this one deliberately does not set it, so ANI2xt runs use
+    # the shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. The 2026-10-16 measurement
+    # put this engine's spread between two optimizations of one minimum at
+    # 2.10e-03 eV (0.048 kcal/mol), a fifth of that constant and the steadiest
+    # of the three engines -- its two readings that day agree to 3% -- and
+    # five times it rounds to 0.011 eV, within rounding of the constant, so a
+    # per-engine value here would change nothing. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2xt adapter.
 
@@ -154,6 +165,29 @@ class ANI2xAdapter(BaseModelAdapter):
     ``compile_model=True`` is ignored with a warning: torch.compile of
     torchani's AEV path corrupts energies.
     """
+
+    # No `duplicate_energy_tol` here: :class:`BaseModelAdapter` carries the
+    # attribute so that an adapter CAN deduplicate its conformers with its own
+    # number, and this one deliberately does not set it, so ANI2x runs use the
+    # shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. This engine is the one where
+    # that has a known cost: its total energy is itself a float32 quantity,
+    # quantized at 3.91e-03 eV near |E| ~ 3.9e4 eV, and the 2026-10-16
+    # measurement saw two optimizations of one minimum land five of those
+    # steps apart (1.95e-02 eV, 0.45 kcal/mol; its arrangements agree to at
+    # most 0.1023 A heavy-atom RMSD, and that molecule's only hydrogen-only
+    # rotors cost several kcal/mol, so it is one basin), so such a pair
+    # survives deduplication as two near-degenerate copies -- visible in the
+    # output and correctable, unlike a merged rotamer, and preferred to a
+    # window of 0.098 eV (3.8 kT at 298 K) that five times this floor would
+    # ask for: of the 13 distinct pairs this engine's heavy-atom criterion
+    # cannot separate, measured on 2026-10-19 over three repeats, 4 or 5 sit
+    # below that window -- 3 or 4 of the 12 whose polar hydrogens moved to
+    # another rotor well -- against the 2 (1 on that cut) this constant
+    # merges. Both counts take two values because one pair, salbutamol 64/80,
+    # sits at 0.296 A against the 0.300 A RMSD threshold and crosses it on the
+    # optimizer's own noise. The step doubles with each doubling of |E|. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and
+    # ``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2x adapter.

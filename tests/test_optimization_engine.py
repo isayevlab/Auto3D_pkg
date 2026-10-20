@@ -309,13 +309,13 @@ class TestNSteps:
         ids=["bare-runtimeerror", "typed-oom", "accelerator-error"],
     )
     def test_fire_step_oom_raises_optimization_error(self, monkeypatch, state, exc_type):
-        """P-m12: a CUDA out-of-memory during the FIRE step itself (not the
+        """A CUDA out-of-memory during the FIRE step itself (not the
         model forward) must surface as ``OptimizationError`` (exit 7), not a
         bare CUDA error -- the same contract ``_run_in_sub_batches`` already
         gives a model-forward OOM.
 
-        GPU review M3 (fix round 1): production can raise this condition as a
-        bare ``RuntimeError``, the typed ``torch.cuda.OutOfMemoryError``, or
+        Production can raise this condition as a bare ``RuntimeError``, the
+        typed ``torch.cuda.OutOfMemoryError``, or
         ``torch.AcceleratorError`` -- all three are ``RuntimeError``
         subclasses whose message names the condition, and ``is_oom`` must
         recognize every one of them, not just the bare-``RuntimeError`` form
@@ -325,7 +325,9 @@ class TestNSteps:
         from Auto3D.foundation.exceptions import OptimizationError
 
         class _OOMFire:
-            def __init__(self, coord):
+            # The constant set reaches the real class as keywords, so the
+            # double has to accept them to stand in for it at all.
+            def __init__(self, coord, **constants):
                 pass
 
             def __call__(self, coord, forces):
@@ -336,7 +338,7 @@ class TestNSteps:
         with pytest.raises(OptimizationError, match="out of memory") as excinfo:
             n_steps(state, n=1, opttol=0.01, patience=100)
 
-        # GPU review M3 gap 4: `from exc` is the only reason the original
+        # `from exc` is the only reason the original
         # CUDA text survives into the `auto3d run` worker's log (it calls
         # `logger.exception`, which formats `__cause__`); assert it is
         # actually chained, not merely that some message was raised.
@@ -419,6 +421,61 @@ def _run_constant_force(
     # would otherwise mask the effect under test.
     n_steps(state, n=20, opttol=opttol, patience=1000)
     return state["converged_mask"].tolist()
+
+
+class _ScheduledForceNN:
+    """Forces of 1.0 per atom until the call numbered ``converge_at[species]``, zero from then on.
+
+    Keyed on the species in column 0, as ``_ConstantForceNN`` above is, because
+    ``n_steps`` gathers a subset of the batch once a row converges, so a row's
+    position is not its identity.
+    """
+
+    def __init__(self, converge_at: dict[int, int]):
+        self.converge_at = converge_at
+        self.calls = 0
+
+    def forward_batched(self, coord, numbers, charges, atom_mask=None, **kwargs):
+        self.calls += 1
+        f = torch.zeros_like(coord)
+        for row in range(coord.shape[0]):
+            if self.calls < self.converge_at[int(numbers[row, 0])]:
+                f[row, :, 0] = 1.0
+        return torch.full((coord.shape[0],), -10.0, dtype=torch.float64), f
+
+
+def test_n_steps_records_the_step_each_row_converged_at():
+    numbers = torch.stack(
+        [torch.full((4,), 1, dtype=torch.long), torch.full((4,), 2, dtype=torch.long)]
+    )
+    state = {
+        "numbers": numbers,
+        "charges": torch.zeros(2, dtype=torch.long),
+        "coord": torch.zeros(2, 4, 3),
+        "nn": _ScheduledForceNN({1: 2, 2: 5}),
+        "converged_mask": torch.zeros(2, dtype=torch.bool),
+        "fmax": torch.full((2,), 999.0),
+        "energy": torch.full((2,), 999.0, dtype=torch.double),
+    }
+    n_steps(state, n=20, opttol=0.01, patience=1000)
+    assert state["converged_step"].dtype == torch.long
+    assert state["converged_step"].tolist() == [2, 5]
+
+
+def test_n_steps_rejects_an_unknown_fire_constant_set():
+    """A legacy param dict bypasses ``OptimizationConfig``'s own check, so the
+    loop names the bad value itself instead of raising a bare ``KeyError``."""
+    state = {
+        "numbers": torch.ones(1, 4, dtype=torch.long),
+        "charges": torch.zeros(1, dtype=torch.long),
+        "coord": torch.zeros(1, 4, 3),
+        "nn": _ScheduledForceNN({1: 1}),
+        "converged_mask": torch.zeros(1, dtype=torch.bool),
+        "fmax": torch.full((1,), 999.0),
+        "energy": torch.full((1,), 999.0, dtype=torch.double),
+    }
+    with pytest.raises(ValueError, match="fire_constants must be one of"):
+        n_steps(state, n=1, opttol=0.01, patience=10, fire_constants="verlet")
 
 
 def test_convergence_outcome_never_depends_on_energy_stability():

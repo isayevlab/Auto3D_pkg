@@ -10,11 +10,11 @@ them.
 
 Usage -- one command does everything::
 
-    bash benchmarks/run_perf_ab.sh v3.2.1
+    bash benchmarks/run_perf_ab.sh v3.2.2
 
 or, if you would rather git not be touched by a script::
 
-    git checkout v3.2.1   && python benchmarks/bench_optimization_perf.py --label before
+    git checkout v3.2.2   && python benchmarks/bench_optimization_perf.py --label before
     git checkout <branch> && python benchmarks/bench_optimization_perf.py --label after
     python benchmarks/bench_optimization_perf.py --compare before after
 
@@ -46,7 +46,9 @@ number you can trust:
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
+import os
 import platform
 import statistics
 import subprocess
@@ -176,6 +178,63 @@ def env_block(device: torch.device | None = None) -> dict:
         except Exception:
             return "unknown"
 
+    def dirty_tree() -> bool | None:
+        """Whether the tree had uncommitted changes, or ``None`` if git refused.
+
+        A record from a dirty tree cannot be reproduced from the commit it
+        names -- the script that produced it is not the script that commit
+        holds -- so this is the flag a reader needs before trusting ``commit``.
+        """
+        try:
+            porcelain = subprocess.check_output(
+                ["git", "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            return None
+        return bool(porcelain.strip())
+
+    def precision_flags() -> dict:
+        """The precision knobs ``configure_torch`` writes, as this process has them.
+
+        Both spellings: the ``allow_tf32`` booleans (back-compat) and the
+        ``fp32_precision`` strings (canonical on torch >= 2.9, where reading
+        the booleans is deprecated -- hence the suppressed warnings). An
+        attribute this torch does not have is recorded as ``None`` rather than
+        omitted, so two records are read against the same set of keys.
+        """
+        flags: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for key, holder, attribute in (
+                ("matmul_allow_tf32", torch.backends.cuda.matmul, "allow_tf32"),
+                ("cudnn_allow_tf32", torch.backends.cudnn, "allow_tf32"),
+                ("matmul_fp32_precision", torch.backends.cuda.matmul, "fp32_precision"),
+                ("cudnn_fp32_precision", torch.backends.cudnn, "fp32_precision"),
+            ):
+                try:
+                    value = getattr(holder, attribute)
+                except Exception:
+                    value = None
+                flags[key] = value if isinstance(value, bool) or value is None else str(value)
+            try:
+                flags["float32_matmul_precision"] = torch.get_float32_matmul_precision()
+            except Exception:
+                flags["float32_matmul_precision"] = None
+        return flags
+
+    def version_of(package: str) -> str | None:
+        """The installed version of ``package``, or ``None`` when it is absent.
+
+        The energies in a record come from these packages, so two records
+        measured against different model weights or a different RDKit are not
+        one measurement -- and which versions were installed is not
+        recoverable from the record afterwards.
+        """
+        try:
+            return importlib.metadata.version(package)
+        except Exception:
+            return None
+
     import Auto3D
 
     on_gpu = torch.cuda.is_available() and (device is None or device.type == "cuda")
@@ -190,9 +249,228 @@ def env_block(device: torch.device | None = None) -> dict:
         "python": platform.python_version(),
         "commit": git("rev-parse", "--short", "HEAD"),
         "ref": git("rev-parse", "--abbrev-ref", "HEAD"),
+        # Read `commit` only together with this: True means the run carried
+        # changes that commit does not hold.
+        "dirty_tree": dirty_tree(),
         # The A/B guard: if these match, both runs benchmarked the same code.
         "auto3d_path": str(Path(Auto3D.__file__).resolve().parent),
+        "precision": precision_flags(),
+        # Which cards this process could see at all, which is what `device`
+        # indexes into (`None` when the variable was unset).
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "aimnet": version_of("aimnet"),
+        "torchani": version_of("torchani"),
+        "rdkit": version_of("rdkit"),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Shared by every measurement script in this directory
+# (measure_fire_constants.py and measure_batch_noise.py): the card's state, the
+# common argument parser, and the smoke-run notices. They live here, beside
+# `env_block` and `make_state`, because this module is already the one the
+# others import; a copy per script is how two of them drifted before.
+# --------------------------------------------------------------------------- #
+
+
+def _nvidia_smi_id(device: torch.device) -> str:
+    """Map ``device.index`` to the ``--id`` ``nvidia-smi`` needs.
+
+    ``nvidia-smi --id=N`` addresses physical enumeration and knows nothing
+    about ``CUDA_VISIBLE_DEVICES``, while torch's ``device.index`` is an
+    index into whatever ``CUDA_VISIBLE_DEVICES`` exposed. Without this, a run
+    launched the way these scripts document
+    (``CUDA_VISIBLE_DEVICES=<idle> ... --device cuda:0``) would snapshot
+    physical card 0 while torch, and ``env_block``, are actually using the
+    idle card named in ``CUDA_VISIBLE_DEVICES`` -- silently inconsistent.
+    Entries in ``CUDA_VISIBLE_DEVICES`` may be plain indices or ``GPU-...``
+    UUIDs; ``nvidia-smi --id=`` accepts either.
+    """
+    index = device.index if device.index is not None else 0
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible:
+        entries = [e.strip() for e in visible.split(",") if e.strip()]
+        if 0 <= index < len(entries):
+            return entries[index]
+    return str(index)
+
+
+def gpu_state(device: torch.device) -> dict | None:
+    """Snapshot this card's driver, utilization, clocks, temperature and
+    memory, plus the other processes holding it (pids and memory only, no
+    process names), via ``nvidia-smi``. ``None`` on a CPU run. The resolved
+    ``nvidia-smi`` id (see :func:`_nvidia_smi_id`, which accounts for
+    ``CUDA_VISIBLE_DEVICES``) is stored too, so a reader can audit which
+    physical card was actually queried. An ``nvidia-smi`` failure (not
+    installed, no permission, ...) is reported as an ``"error"`` key rather
+    than raised, since this is a diagnostic snapshot, not something the
+    measurement should abort on by itself.
+    """
+    if device.type != "cuda":
+        return None
+    smi_id = _nvidia_smi_id(device)
+    try:
+        gpu_line = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={smi_id}",
+                "--query-gpu=driver_version,utilization.gpu,clocks.sm,clocks.mem,"
+                "temperature.gpu,memory.used",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip()
+        driver, util, clock_sm, clock_mem, temp, mem_used = (s.strip() for s in gpu_line.split(","))
+        apps_text = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={smi_id}",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip()
+        own_pid = os.getpid()
+        other_processes = []
+        if apps_text:
+            for line in apps_text.splitlines():
+                pid_s, used_s = (s.strip() for s in line.split(","))
+                if int(pid_s) == own_pid:
+                    continue  # this script's own CUDA context, not an "other" process
+                other_processes.append({"pid": int(pid_s), "used_memory": used_s})
+    except Exception as exc:  # nvidia-smi missing, no permission, parse surprise, ...
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "nvidia_smi_id": smi_id,
+        "driver_version": driver,
+        "utilization_gpu": util,
+        "clocks_sm": clock_sm,
+        "clocks_mem": clock_mem,
+        "temperature_gpu": temp,
+        "memory_used": mem_used,
+        "other_processes": other_processes,
+    }
+
+
+def warn_if_occupied(state: dict | None, when: str) -> None:
+    """Print a one-line stderr warning if ``state`` (from :func:`gpu_state`)
+    shows another process already holding the card at ``when`` ("start" or
+    "end") -- the idle-card claim the whole measurement rests on.
+    """
+    if not state or "error" in state or not state.get("other_processes"):
+        return
+    print(
+        f"WARNING: {len(state['other_processes'])} other process(es) on the GPU at "
+        f"{when} of this run: {state['other_processes']}; the idle-card assumption "
+        "does not hold for this run.",
+        file=sys.stderr,
+    )
+
+
+def positive_int(text: str) -> int:
+    """An ``argparse`` type for a count that has to be at least one.
+
+    ``--reps 0`` would write a record whose results are an empty list and
+    ``--limit 0`` an empty bench set; both are a mistake at the command line,
+    and both are cheaper to hear about there than after the model has loaded.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, got {value}")
+    return value
+
+
+def bench_arg_parser(
+    description: str, *, reps: int, limit_help: str, sets: str | None = None
+) -> argparse.ArgumentParser:
+    """The argument parser every measurement script in this directory shares.
+
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` are
+    spelled once here, so two runs of two scripts are invoked alike and a
+    script cannot drift into its own spelling or its own type for one of them.
+    ``reps`` and ``limit_help`` are per script; ``sets``, when given, adds
+    ``--sets`` with that default.
+
+    ``--limit`` is the one flag whose UNIT is per script, which is why its help
+    text is a parameter rather than a sentence written here: it keeps the first
+    N molecules of the flattened bench set in ``measure_fire_constants.py``,
+    and the first N of EACH size group in ``measure_batch_noise.py``, whose
+    three arrangements need more than one group to stay distinct. Both counts
+    are positive, so a run cannot start with nothing to measure.
+    """
+    parser = argparse.ArgumentParser(
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--engines", default="AIMNET,ANI2xt")
+    parser.add_argument("--reps", type=positive_int, default=reps)
+    parser.add_argument("--out", required=True, help="JSON file to write")
+    parser.add_argument("--limit", type=positive_int, default=None, help=limit_help)
+    if sets is not None:
+        parser.add_argument(
+            "--sets", default=sets, help="comma-separated FIRE constant set names to compare"
+        )
+    return parser
+
+
+def smoke_notice(detail: str) -> None:
+    """Print the loud pre-run notice. Called only when the run IS a smoke run.
+
+    On stderr, which is unbuffered, so the notice appears even when stdout is
+    redirected to a file and block-buffered. The two streams then interleave
+    unpredictably, which is why each script repeats the notice after its table
+    instead of relying on this one line to be read first.
+    """
+    print(f"SMOKE RUN -- NOT A MEASUREMENT: {detail}", file=sys.stderr)
+
+
+def write_record(out: str, record: dict, *, is_smoke: bool) -> Path:
+    """Write the JSON record, creating its directory, and return its path.
+
+    Dumped strictly first, with ``allow_nan=False``: a NaN or an infinity
+    anywhere in the structure is otherwise written as the bare
+    ``NaN``/``Infinity`` token, which is not JSON and which a strict reader
+    rejects. A record the strict dump refuses is written leniently anyway,
+    with one stderr warning naming the file and the token it carries -- this
+    is the last line of a run that can take tens of minutes, and a record with
+    a non-finite number in it is still the only copy of what was measured. The
+    warning is what tells a reader that this file needs a lenient parser and
+    holds a number no statistic should be taken over.
+
+    Repeats the smoke notice immediately after writing, so a reader who finds
+    the file knows what is in it before the table is printed.
+    """
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        text = json.dumps(record, indent=1, allow_nan=False)
+    except ValueError:
+        # Warned before the lenient dump runs, not after: if that dump fails
+        # too (something in the record no encoder accepts), this line is all a
+        # reader has about which file the run died writing.
+        print(
+            f"WARNING: {path} carries a non-finite token (NaN or Infinity), which is not "
+            "JSON; the record is written as it stands rather than lost, and a strict "
+            "reader will reject it.",
+            file=sys.stderr,
+        )
+        text = json.dumps(record, indent=1)
+    path.write_text(text)
+    if is_smoke:
+        print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)
+    return path
+
+
+def smoke_verdict_notice(is_smoke: bool) -> None:
+    """The last line of a smoke run, printed after the table it applies to."""
+    if is_smoke:
+        print(
+            "SMOKE RUN -- NOT A MEASUREMENT: do not use these numbers for the decision.",
+            file=sys.stderr,
+        )
 
 
 def make_state(
@@ -559,8 +837,11 @@ def main() -> None:
         help="Comma-separated. Append '+compile' for torch.compile.",
     )
     parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--steps", type=int, default=N_STEPS_TIMED)
-    parser.add_argument("--reps", type=int, default=N_REPS)
+    # Through `positive_int` for the same reason the shared parser uses it:
+    # zero steps or zero repeats measures nothing and is a typing mistake, not
+    # a run.
+    parser.add_argument("--steps", type=positive_int, default=N_STEPS_TIMED)
+    parser.add_argument("--reps", type=positive_int, default=N_REPS)
     parser.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args()
 

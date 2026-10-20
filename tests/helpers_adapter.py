@@ -68,8 +68,8 @@ class FakeAdapter:
         self._energy_fn = energy_fn
         self._hessian = hessian
         #: One dict per forward/energy/analytic_hessian call: the coords dtype,
-        #: the ``atom_mask`` and ``mults`` values, whether ``mults`` was passed
-        #: at all, and which member was called.
+        #: the ``charges``, ``atom_mask`` and ``mults`` values, whether
+        #: ``mults`` was passed at all, and which member was called.
         self.calls: list[dict] = []
 
     # -- the species half of the contract ---------------------------------
@@ -86,7 +86,13 @@ class FakeAdapter:
 
     def forward(self, coords, species, charges, atom_mask=None, *, mults=_NOT_PASSED):
         self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "forward"} | _spin_record(mults)
+            {
+                "dtype": coords.dtype,
+                "charges": charges,
+                "atom_mask": atom_mask,
+                "kind": "forward",
+            }
+            | _spin_record(mults)
         )
         coords = coords if coords.requires_grad else coords.detach().requires_grad_(True)
         energy = self._energies(coords, species, charges)
@@ -96,7 +102,13 @@ class FakeAdapter:
     def energy(self, coords, species, charges, atom_mask=None, *, mults=_NOT_PASSED):
         """Energies at the dtype of ``coords`` -- deliberately no downcast."""
         self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "energy"} | _spin_record(mults)
+            {
+                "dtype": coords.dtype,
+                "charges": charges,
+                "atom_mask": atom_mask,
+                "kind": "energy",
+            }
+            | _spin_record(mults)
         )
         return self._energies(coords, species, charges)
 

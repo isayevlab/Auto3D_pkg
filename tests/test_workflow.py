@@ -1769,7 +1769,11 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
             return True  # matches Optimizer.run()'s real True-on-write contract
 
     class _StubRank:
-        def __init__(self, in_f, out_f, threshold, k=None, window=None):
+        # The real signature, spelled out: this stub standing in for a
+        # ConformerRanker the entry point calls with keywords it does not
+        # accept would be a silent pass. What the entry point ranks WITH is
+        # pinned in the test below, not here.
+        def __init__(self, in_f, out_f, threshold, k=None, window=None, duplicate_energy_tol=None):
             written["out_f"] = out_f
 
         def run(self):
@@ -1809,6 +1813,70 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
     assert ethanol_id not in missing_ids
     assert len(missing_ids) == 1
     assert any(missing_ids[0] in r.message for r in caplog.records)
+
+
+def test_smiles2mols_ranks_with_the_adapters_duplicate_energy_tol(monkeypatch, tmp_path):
+    """The other production construction of the ranker, pinned on its own.
+
+    `smiles2mols` optimizes and ranks in the caller's process, so the adapter
+    it built is what its energies came from and what their duplicate-energy
+    tolerance was measured for. Reading the shipped constant here instead
+    would deduplicate every engine with a tolerance measured for none of them.
+    The adapter is a stub: what is under test is which number reaches the
+    ranker, not any model.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import Auto3D.entry.auto3D as auto3D_mod
+    from Auto3D.foundation.config import Auto3DOptions
+
+    class _Adapter:
+        duplicate_energy_tol = 0.123
+
+    class _StubIsomerEngine:
+        def run(self):
+            return None
+
+    class _StubOpt:
+        def __init__(self, in_f, out_f, **kwargs):
+            self._out = out_f
+
+        def run(self):
+            # Enough of an SDF for the entry point to get past its
+            # "nothing was produced" guard and reach the ranking step.
+            with Chem.SDWriter(self._out) as w:
+                mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+                w.write(mol)
+            return True
+
+    recorded: list[dict] = []
+
+    class _RecordingRank:
+        def __init__(self, in_f, out_f, threshold, **kwargs):
+            recorded.append(kwargs)
+            self._out = out_f
+
+        def run(self):
+            with Chem.SDWriter(self._out) as w:
+                mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+                w.write(mol)
+            return []
+
+    monkeypatch.setattr(
+        auto3D_mod.IsomerEngineFactory, "create", staticmethod(lambda **k: _StubIsomerEngine())
+    )
+    monkeypatch.setattr(auto3D_mod, "create_model", lambda *a, **k: _Adapter())
+    monkeypatch.setattr(auto3D_mod, "Optimizer", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ConformerRanker", _RecordingRank)
+    monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
+
+    auto3D_mod.smiles2mols(["CCO"], Auto3DOptions(k=1, use_gpu=False))
+
+    assert len(recorded) == 1, "the run never reached the ranking step"
+    assert recorded[0]["duplicate_energy_tol"] == 0.123
 
 
 class TestQuietPathsNameWhatTheyDropped:
@@ -2157,3 +2225,63 @@ class TestWedgedChildrenAreEscalated:
                 raise BrokenPipeError("server already gone")
 
         orch._terminate_workers([], [_DeadManager()])  # must not raise
+
+
+def test_optim_rank_wrapper_ranks_with_the_adapters_duplicate_energy_tol(tmp_path, monkeypatch):
+    """The worker ranks with the tolerance its own adapter carries.
+
+    How far two optimizations of one minimum can land apart was measured per
+    engine, and the adapter this worker optimized with is the only thing in
+    the process that knows which engine that was -- the filter is a lower
+    layer and must not import upward. The worker is where the two meet, so the
+    adapter's number has to reach the ranker here; reading the shipped
+    constant instead would silently deduplicate every engine with a tolerance
+    measured for none of them.
+    """
+    import queue as queue_mod
+    from pathlib import Path
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration import workflow_workers as ww
+
+    class _Adapter:
+        duplicate_energy_tol = 0.123
+
+    class _WritingOptimizer:
+        """Writes the file the worker checks for before it ranks, nothing more."""
+
+        def __init__(self, in_f, out_f, *, adapter, device, config, progress_cb=None):
+            self._out = out_f
+
+        def run(self):
+            Path(self._out).parent.mkdir(parents=True, exist_ok=True)
+            Path(self._out).write_text("")
+            return True
+
+    recorded: list[dict] = []
+
+    class _RecordingRanker:
+        def __init__(self, input_path, out_path, threshold, **kwargs):
+            recorded.append(kwargs)
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr(ww, "Optimizer", _WritingOptimizer)
+    monkeypatch.setattr(ww, "ConformerRanker", _RecordingRanker)
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: _Adapter())
+
+    job = tmp_path / "job1"
+    job.mkdir()
+    q: queue_mod.Queue = queue_mod.Queue()
+    q.put(("enum1.sdf", str(tmp_path / "c1.smi"), str(job), 1))
+    q.put("Done")
+    logq: queue_mod.Queue = queue_mod.Queue()
+
+    args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+    ww.optim_rank_wrapper(
+        args, args.to_optimization_config(batchsize_atoms=4096), q, logq, gpu_idx=0
+    )
+
+    assert len(recorded) == 1, "the chunk never reached the ranking step"
+    assert recorded[0]["duplicate_energy_tol"] == 0.123

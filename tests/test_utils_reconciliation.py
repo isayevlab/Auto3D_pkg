@@ -65,7 +65,7 @@ class TestNoneAndMalformedInputHardening:
 
 
 class TestOutputSupplierPassesRemoveHsFalse:
-    """P-m27: the default `SDMolSupplier(sdf)` (``removeHs=True``) may fail
+    """The default `SDMolSupplier(sdf)` (``removeHs=True``) may fail
     to parse, or silently alter, an explicit-hydrogen output record -- every
     Auto3D writer emits explicit H, so the output SDF these two functions
     read is exactly that. `find_ids_not_in_sdf`'s OWN source-SDF supplier
@@ -180,7 +180,7 @@ class TestBareAtSurvivesTautStripping:
     def test_find_ids_not_in_sdf_does_not_hide_a_missing_id_behind_a_non_suffix_at_taut(
         self, tmp_path
     ):
-        """N-m29: an output id containing the literal text "@taut" other than
+        """An output id containing the literal text "@taut" other than
         as a trailing ``@tautN`` suffix (the one `hash_taut_smi` writes) must
         not be truncated down to a shorter id it merely starts with.
 

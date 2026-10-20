@@ -32,6 +32,7 @@ from Auto3D.foundation.config import (
     require_selector,
 )
 from Auto3D.foundation.constants import (
+    DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
@@ -187,6 +188,14 @@ class ConformerRanker:
             ``Auto3D.domain.filtering.filter_conformers``, which is Auto3D's
             one conformer filter. Defaults to
             ``Auto3D.foundation.constants.DEFAULT_ENERGY_CLUSTER_WINDOW``.
+        duplicate_energy_tol: Energy tolerance in eV for the duplicate test --
+            how far two optimizations of one minimum can land apart on the
+            engine that produced these energies, which is a property of that
+            engine and so lives on its adapter (``duplicate_energy_tol``;
+            Auto3D's own pipeline passes it in, and every adapter it ships
+            carries the constant below). ``None`` for a caller with no engine
+            to ask, which means
+            ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``.
         overwrite: Allow writing over an existing `out_path`. Defaults to
             True, matching what every caller already assumes
             -- including Auto3D's own pipeline, which always writes
@@ -204,6 +213,7 @@ class ConformerRanker:
         energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
         overwrite: bool = True,
         rank_by: str = RANK_BY_ELECTRONIC,
+        duplicate_energy_tol: float | None = None,
     ) -> None:
         # Same guard the three API entry points run. ConformerRanker is a
         # documented public writer that reads `input_path` and, in `run()`,
@@ -228,6 +238,12 @@ class ConformerRanker:
         self.k = k
         self.window = window
         self.energy_cluster_window = energy_cluster_window
+        # `None` is "no engine told me", not "no tolerance": the shipped
+        # constant then stands in, which is what every caller that does not
+        # pass one already got.
+        self.duplicate_energy_tol = (
+            DEFAULT_DUPLICATE_ENERGY_TOL if duplicate_energy_tol is None else duplicate_energy_tol
+        )
         if rank_by not in _RANK_BASES:
             raise ConfigurationError(
                 f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}", hint=""
@@ -278,6 +294,7 @@ class ConformerRanker:
             mols,
             rmsd_threshold=self.threshold,
             energy_cluster_window=self.energy_cluster_window,
+            energy_tol=self.duplicate_energy_tol,
         )
 
     def _log_nothing_selected(self, name: str, result: FilterResult) -> None:

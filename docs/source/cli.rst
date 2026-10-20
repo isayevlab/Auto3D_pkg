@@ -126,8 +126,11 @@ Run conformer generation on input molecules.
      - Enumerate cis/trans and R/S isomers
    * - ``--max-confs``
      - auto
-     - Max conformers per molecule. The default is **not** "heavy atoms - 1":
-       it is ``min(max(1, num_heavy, 2*8.481*n_rot**1.642), 1000)``.
+     - Max conformers per molecule. The default is
+       ``min(max(1, 16 if num_heavy >= 2 else 1, num_heavy, 2*8.481*n_rot**1.642), 1000)``:
+       the fitted rotatable-bond term of Chan, Morris and Hutchison (2021),
+       Auto3D's factor of 2, and a minimum of 16 for any molecule with two or
+       more heavy atoms.
    * - ``--threshold``
      - 0.3
      - RMSD threshold for duplicate removal (Angstrom)

@@ -43,8 +43,8 @@ def count_unspecified_stereo(mol: Chem.Mol) -> int:
     **atom** centers and never double-bond geometry. Counting only atom
     centers silently misses every unspecified C=C -- e.g. ``OC(=O)C=CC(=O)O``
     embeds as a mixture of fumaric *and* maleic acid (~5 kcal/mol apart)
-    under one species id, and ``CC=CC`` embeds as cis-2-butene alone with the
-    trans isomer absent, both with no warning.
+    under one species id, and ``CC=CC`` embeds as a mixture of both geometries
+    under one species id, both with no warning.
 
     Args:
         mol: Molecule to inspect. Not modified.

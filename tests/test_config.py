@@ -240,7 +240,7 @@ def test_capacity_default_comes_from_the_shared_constant():
 def test_dict_style_access_warns_once_per_method():
     """Each of the five dict-compat shim methods must warn, exactly once per call.
 
-    The shim stays for one release (CHANGELOG.md, Unreleased), but every call
+    The shim stays for one release (CHANGELOG.md, 3.2.1), but every call
     site using it should see a DeprecationWarning telling it to switch to
     attribute access before the shim is removed in 4.0.
     """
@@ -296,7 +296,18 @@ def test_to_dict_names_every_field_by_its_own_name():
         "convergence_threshold": 0.02,
         "patience": 5,
         "batchsize_atoms": 1024,
+        "fire_constants": "auto3d",
     }
+
+
+def test_optimization_config_carries_a_named_fire_constant_set():
+    from Auto3D.foundation.config import OptimizationConfig
+    from Auto3D.foundation.exceptions import ConfigurationError
+
+    assert OptimizationConfig().to_dict()["fire_constants"] == "auto3d"
+    assert OptimizationConfig(fire_constants="bitzek2006").fire_constants == "bitzek2006"
+    with pytest.raises(ConfigurationError, match="fire_constants"):
+        OptimizationConfig(fire_constants="verlet")
 
 
 def test_old_option_names_still_work_and_warn():

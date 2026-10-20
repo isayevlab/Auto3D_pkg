@@ -40,6 +40,31 @@ class AIMNet2Adapter(BaseModelAdapter):
     calculator guarantees stays connected to ``coord`` in the autograd graph.
     """
 
+    # No `duplicate_energy_tol` here: :class:`BaseModelAdapter` carries the
+    # attribute so that an adapter CAN deduplicate its conformers with its own
+    # number, and this one deliberately does not set it, so AIMNet2 runs use
+    # the shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. The 2026-10-16 measurement
+    # put this engine's largest spread between two optimizations of the same
+    # starting structure at 9.9e-03 eV (0.23 kcal/mol), just under that
+    # constant. That row is salbutamol: its arrangements agree to 0.0647 A
+    # heavy-atom RMSD, the duplicate filter's own criterion, but the molecule
+    # carries hydroxyl and amine hydrogens whose alternative orientations are
+    # distinct minima that can be close in energy -- this engine's smallest
+    # measured gap between two conformers the heavy-atom criterion cannot
+    # separate is 0.0073 eV, below that row -- so an O-H rotamer or N-H
+    # invertomer pair is not excluded (the next case, 4.0e-03 eV, has no such
+    # rotor). The spread was also 1.4x above its own reading an hour earlier,
+    # so a value built on it would be built on a draw rather than a bound --
+    # and five times it, 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), would
+    # merge 6 of the 12 distinct pairs measured for this engine on 2026-10-19,
+    # in every one of three repeats, against the 1 this constant merges; those
+    # 12 span 0.17 to 5.5 kcal/mol with a median of 1.3, and all 12 come from
+    # salbutamol and diethanolamine. That matters here
+    # because this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``
+    # and ``aimnet2-pd`` while only the default model was measured. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md`` and
+    # ``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``.
+
     def __init__(
         self,
         model_name: str = "aimnet2",

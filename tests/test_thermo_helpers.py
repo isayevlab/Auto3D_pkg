@@ -352,7 +352,7 @@ from tests.helpers_vibrations import energies_ev as _ev  # noqa: E402
 from tests.helpers_vibrations import wavenumbers  # noqa: E402
 
 # No EV_PER_CM here: this file had its own `1.0 / 8065.54429` literal, the
-# exact value N-m22 superseded in `constants.py`, kept 0.044 ppm stale and
+# exact value superseded in `constants.py`, kept 0.044 ppm stale and
 # unused by anything in this file (the sibling helper,
 # tests/helpers_vibrations.py, imports the real EV_PER_WAVENUMBER instead).
 # Removed rather than re-added as an import, since nothing here reads it.

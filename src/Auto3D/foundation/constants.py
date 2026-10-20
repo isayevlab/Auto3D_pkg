@@ -56,12 +56,21 @@ MAX_STEREOISOMERS = 2**16  # 65536
 # Chunk sizing
 DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
 
-# Conformer generation formula coefficients
-# Coefficient and exponent cited to https://doi.org/10.1021/acs.jctc.0c01213
-# (unverified; see Auto3D.domain.conformer_budget).
-CONFORMER_ROTATABLE_COEFF = 8.481  # Coefficient for rotatable bond count
-CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
+# Conformer budget. The rotatable-bond coefficient and exponent are the fitted
+# constants of Chan, Morris and Hutchison, J. Chem. Theory Comput. 2021, 17,
+# 2099 (https://doi.org/10.1021/acs.jctc.0c01213), checked against that
+# work's deposited dataset rather than its paywalled text; see
+# Auto3D.domain.conformer_budget for what they estimate and which parts of the
+# expression are Auto3D's own.
+CONFORMER_ROTATABLE_COEFF = 8.481
+CONFORMER_ROTATABLE_EXP = 1.642
 CONFORMER_MULTIPLIER = 2  # Auto3D's own oversampling factor, not from that work
+# Auto3D's own floor for molecules with two or more heavy atoms: the request the
+# expression already gives at one rotatable bond, extended to the rotor-free
+# case because ring puckering is not a rotatable bond (in the deposited data a
+# molecule with no rotatable bond averages 25 retained conformers, more than a
+# one-rotor molecule's 15). A lone atom or a bare proton still requests 1.
+CONFORMER_MIN_REQUEST = 16
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
 # Seconds. Wall-clock cap on embedding one species (RDKit's
@@ -143,32 +152,60 @@ BUILTIN_ANI_MODELS = frozenset({MODEL_ANI2X.upper(), MODEL_ANI2XT.upper()})
 
 # Default optimization parameters
 DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
-# eV, energy tolerance for the duplicate-conformer test. RMSD dedup compares
-# heavy-atom skeletons only, so two conformers that settled on the same skeleton
-# with different O-H / N-H orientations have RMSD ~= 0 while being distinct
-# minima; they count as duplicates only when their energies ALSO agree within
-# this tolerance (~0.23 kcal/mol). What the tolerance has to cover is how far two
-# optimizations of the SAME minimum can land apart at the 0.01 eV/A force gate,
-# not float32 kernel noise: on the 24-molecule bench set the same start optimized
-# in three batch arrangements ended up to 1.7e-3 eV (AIMNet2) and 2.0e-3 eV
-# (ANI2xt) apart (benchmarks/results-notes/2026-10-05-batch-noise.md). 0.01 is
-# 5.8x AIMNet2's measured maximum and 4.96x ANI2xt's -- the >=5x decision gate
-# is met for AIMNet2 and missed by about one percent for ANI2xt, on one
-# molecule of 24, measured as a same-start lower bound on a shared card; a
-# pair of different starts in one basin is bounded by the same gate. ANI2x's
-# float32 total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV: every
-# nonzero spread this measurement saw was 1 or 5 of those ULPs. A second
-# sample's heavy-atom RMSD check (from 6.5e-5 A to 0.054 A, all well below the 0.3 A
-# duplicate threshold;
-# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) confirms
-# basin position, not a different rotamer, for a 1-ULP ANI2x spread
-# (3.9e-3 eV) -- but the measured maximum, 2.0e-2 eV, is a 5-ULP event that
-# did NOT recur in that second sample, so whether IT is basin position or two
-# rotamers is not established (benchmarks/results-notes/2026-10-05-batch-noise.md,
-# "Same minimum?"). Above this tolerance either way: with that engine two
-# copies of a conformer -- of one minimum, or of two that happen to agree in
-# energy -- can survive dedup for large molecules (docs/source/usage.rst,
-# "Reproducibility across reruns").
+# eV, the energy tolerance for the duplicate-conformer test, and what every
+# engine Auto3D ships is deduplicated with. RMSD dedup compares heavy-atom
+# skeletons only, so two conformers that settled on the same skeleton with
+# different O-H / N-H orientations have RMSD ~= 0 while being distinct minima;
+# they count as duplicates only when their energies ALSO agree within the
+# tolerance in force (0.23 kcal/mol, 0.39 kT at 298 K, at this value). What the
+# tolerance has to cover is how far two optimizations of the SAME minimum can
+# land apart at the 0.01 eV/A force gate, which is a property of the engine
+# that produced the energies: the value lives on that engine's adapter as
+# `duplicate_energy_tol` (Auto3D.engines.models.adapter) and the orchestrator
+# passes it down to `filter_conformers`, which is a lower layer and cannot ask
+# which engine ran. No adapter in this repository overrides it, so every
+# bundled engine resolves to this constant; the attribute is the hook for an
+# adapter that has a measurement to apply.
+#
+# The three bundled engines were measured on 2026-10-16 (three batch
+# arrangements, three repeats, one idle card, each largest case checked as the
+# same structure by the duplicate filter's own heavy-atom criterion, which
+# cannot see a hydrogen-rotor difference): floors 9.93e-3 eV (AIMNet2), 2.10e-3 eV
+# (ANI2xt) and 1.95e-2 eV (ANI2x), i.e. the ratio tolerance / floor is 1.01,
+# 4.75 and 0.51. Per-engine values were computed from those floors --
+# 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
+# adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
+# hour apart, so five times the largest of three draws is a draw and not a
+# bound on the quantity. And a window of that width merges pairs the
+# heavy-atom criterion cannot separate, which is what the energy half of this
+# test exists to protect -- its motivation being the hydroxyl and amine rotors
+# whose orientation that criterion cannot see at all. How far apart such pairs
+# sit was measured on 2026-10-19, over three repeats of a 164-conformer
+# production pool from ten hydroxyl- and amine-bearing molecules, two of which
+# produced every pair: 12 distinct pairs for AIMNet2 spanning 0.17 to
+# 5.5 kcal/mol with a median of 1.3, 11 for ANI2xt spanning 0.04 to 4.3 with a
+# median of 0.5, and 13 for ANI2x spanning 0.09 to 7.2 with a median of 2.4.
+# Restricted to the pairs whose polar hydrogens actually moved to another rotor
+# well, each per-engine window merges 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in
+# every one of the three repeats, and 3 or 4 of ANI2x's 12 depending on the
+# repeat, against the 1, 2 and 1 this constant merges: the AIMNet2 value is
+# 1.9 kT at 298 K and the ANI2x one 3.8 kT, while ANI2xt's 0.011 eV is 0.43 kT
+# and within rounding of this
+# constant -- which would buy false positives (a merged rotamer, silent and
+# irreversible) to
+# reduce false negatives that are intrinsic to any finite window and that a
+# user can see and correct. The floors, both samples and that reading:
+# benchmarks/results-notes/2026-10-16-batch-noise.md. The gaps:
+# benchmarks/results-notes/2026-10-19-rotamer-splittings.md.
+#
+# The accepted cost is on ANI2x, whose measured floor is twice this value: its
+# float32 total energy is quantized at 3.91e-3 eV near |E| ~ 3.9e4 eV (the step
+# doubles with each doubling of |E|), and two optimizations of one minimum were
+# seen five steps apart, so such a pair survives as two near-degenerate
+# conformers in the output (docs/source/usage.rst, "Reproducibility across
+# reruns"). AIMNet2's measured floor sits just inside this value and ANI2xt's
+# well inside it, but a floor is a draw: a pair can land past it on another
+# run.
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by
@@ -183,6 +220,33 @@ DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
 DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
+# FIRE constant sets, selected by name through OptimizationConfig.fire_constants.
+# "auto3d" is the set every release so far has run; "bitzek2006" is the set of
+# Bitzek, Koskinen, Gaehler, Moseler and Gumbsch (Phys. Rev. Lett. 2006, 97,
+# 170201) as ASE implements it, which also skips the progress test on the first
+# step, when the velocity is still zero. The benchmark
+# benchmarks/measure_fire_constants.py compares the two; the default changes
+# only on its results note.
+FIRE_CONSTANT_SETS: dict[str, dict[str, float | bool]] = {
+    "auto3d": {
+        "dt_max": 0.1,
+        "maxstep": 0.1,
+        "finc": 1.5,
+        "fdec": 0.7,
+        "astart": 0.1,
+        "dt_init": 0.1,
+        "skip_first_progress_test": False,
+    },
+    "bitzek2006": {
+        "dt_max": 1.0,
+        "maxstep": 0.2,
+        "finc": 1.1,
+        "fdec": 0.5,
+        "astart": 0.1,
+        "dt_init": 0.1,
+        "skip_first_progress_test": True,
+    },
+}
 # No ``energy_tol``/``energy_patience`` constant exists: either would reach
 # an optimizer energy-stability criterion that can never fire, i.e. a knob
 # that changes nothing -- tuning it, for fp32 noise or anything else, would

@@ -45,6 +45,7 @@ import torch
 from Auto3D.engines.batch_opt.fire_optimizer import FIRE
 from Auto3D.engines.batch_opt.model_wrapper import is_oom
 from Auto3D.engines.models.contract import spin_kwargs
+from Auto3D.foundation.constants import FIRE_CONSTANT_SETS
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
@@ -421,10 +422,11 @@ def _scatter_back(
     active_idx: torch.Tensor,
     smallest_fmax0: torch.Tensor,
     result: _StepResult,
+    istep: int,
 ) -> None:
     """Write one step's results back into the full-batch state tensors.
 
-    All six writes reuse ``active_idx``, so they cost no synchronization.
+    Every write reuses ``active_idx``, so they cost no synchronization.
     ``index_copy_`` requires the source dtype to match the destination exactly
     (it will not cast, in either direction), so each source is cast at the call
     site -- which is also the only reason a custom NNP returning float64 forces
@@ -435,6 +437,9 @@ def _scatter_back(
         active_idx: int64 row indices the results correspond to.
         smallest_fmax0: Full-batch running force minimum, mutated in place.
         result: The values returned by ``_step_active_subset``.
+        istep: The 1-based number of the step these results came from, which
+            is what ``state["converged_step"]`` records for a row leaving the
+            active set here.
     """
     # Converged structures are excluded from every subsequent step. A row
     # leaving `still_active` is normally reported converged (`~still_active`)
@@ -444,10 +449,29 @@ def _scatter_back(
     # what keeps `converged_mask` False for it, rather than True
     # with the failure visible only in a separate flag nobody who reads
     # `converged_mask` alone would see.
+    left_active = (~result.still_active) & (~result.non_finite)
     state["converged_mask"].index_copy_(
+        0, active_idx, left_active.to(state["converged_mask"].dtype)
+    )
+    # The step a row left the active set, -1 while it is still active. A row
+    # dropped for oscillation leaves the active set too and is recorded here;
+    # `oscillating_count` tells the two apart downstream. A row retired
+    # non-finite is the one exception, left at -1 on the same grounds as its
+    # `converged_mask=False` above: it reached no geometry a step count would
+    # describe, and `non_finite` is what reports it.
+    #
+    # Writing -1 back for a row that is still active is not a read-modify-write
+    # of an unknown value, it restates the one value such a row can hold: a row
+    # is in `active_idx` only while `~converged_mask & ~non_finite`, and a step
+    # is stamped here exactly where `converged_mask` becomes True, so a row
+    # arriving in this call still carries the -1 it was allocated with. That
+    # makes the index_select of the old column unnecessary.
+    state["converged_step"].index_copy_(
         0,
         active_idx,
-        ((~result.still_active) & (~result.non_finite)).to(state["converged_mask"].dtype),
+        torch.where(
+            left_active, torch.full_like(active_idx, istep), torch.full_like(active_idx, -1)
+        ),
     )
     state["fmax"].index_copy_(0, active_idx, result.fmax.to(state["fmax"].dtype))
     state["energy"].index_copy_(0, active_idx, result.energy.to(state["energy"].dtype))
@@ -520,6 +544,7 @@ def n_steps(
     patience: int,
     atom_mask: torch.Tensor | None = None,
     progress_cb: Callable[[dict], None] | None = None,
+    fire_constants: str = "auto3d",
 ) -> None:
     """Run n optimization steps for each input structure.
 
@@ -570,6 +595,17 @@ def n_steps(
             treated as real) for unpadded batches or any caller that omits it.
         progress_cb: Optional callback invoked every 10 steps and once at the
             end with a dict of step/total/converged/dropped/active counts.
+        fire_constants: Name of the FIRE constant set to run
+            (``Auto3D.foundation.constants.FIRE_CONSTANT_SETS``). Defaults to
+            the set every release has run, so an omitted keyword is the
+            shipped optimizer; the other set exists for
+            ``benchmarks/measure_fire_constants.py``. A name no set answers to
+            raises ``ValueError``.
+
+    Besides the keys it reads, this allocates three of its own in ``state``:
+    ``oscillating_count``, ``non_finite`` and ``converged_step`` (full-batch
+    int64, the step at which each row left the active set and -1 for a row
+    that never did).
     """
     numbers = state["numbers"]
     coord = state["coord"]
@@ -581,7 +617,20 @@ def n_steps(
     # Validate input state tensors before processing
     _validate_state(state)
 
-    optimizer = FIRE(coord)
+    # Checked here as well as in `OptimizationConfig.__post_init__`, because a
+    # caller handing `ensemble_opt` a hand-written param dict never passes
+    # through that class: without this the name would surface as a bare
+    # KeyError from the subscript below, naming neither the argument nor the
+    # names it accepts.
+    if fire_constants not in FIRE_CONSTANT_SETS:
+        raise ValueError(
+            f"fire_constants must be one of {sorted(FIRE_CONSTANT_SETS)}, got {fire_constants!r}"
+        )
+
+    # The constants come from the named set, never from literals here: the
+    # defaults of `FIRE.__init__` are the "auto3d" set, so this spelling and
+    # the bare `FIRE(coord)` it replaced build the same optimizer.
+    optimizer = FIRE(coord, **FIRE_CONSTANT_SETS[fire_constants])
 
     # The following two terms are used to detect oscillating conformers.
     # Allocated directly on `coord.device` (issue #24): the previous spelling
@@ -611,6 +660,12 @@ def n_steps(
     # `_scatter_back`. Allocated here, beside `oscillating_count`, for the
     # same reason: nothing before the loop can produce one.
     state["non_finite"] = torch.zeros(len(coord), dtype=torch.bool, device=coord.device)
+    # The step each row left the active set, -1 for a row still active (and so
+    # for every row that never leaves). Written by `_scatter_back`; read by
+    # `benchmarks/measure_fire_constants.py`, which compares two constant sets
+    # by how many steps each conformer needed. Not part of `ensemble_opt`'s
+    # return, whose key set its callers pin.
+    state["converged_step"] = torch.full((len(coord),), -1, dtype=torch.long, device=coord.device)
 
     istep = 0  # Initialize in case loop doesn't execute (n=0)
     # Plain range, not tqdm. A bar over `range(1, n+1)` measures the *step
@@ -654,7 +709,7 @@ def n_steps(
             break
 
         result = _step_active_subset(state, optimizer, active_idx, smallest_fmax0, opttol, patience)
-        _scatter_back(state, active_idx, smallest_fmax0, result)
+        _scatter_back(state, active_idx, smallest_fmax0, result, istep)
 
         # Print stats every 10% of steps (avoid division by zero for small n)
         if n >= 10 and (istep % (n // 10)) == 0:

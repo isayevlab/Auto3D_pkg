@@ -25,6 +25,7 @@ from Auto3D.engines.models.adapter.compiling import (
 )
 from Auto3D.engines.models.adapter.validation import _validate_outputs
 from Auto3D.engines.models.contract import spin_kwargs
+from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
 
 class BaseModelAdapter(ABC, nn.Module):
@@ -64,6 +65,39 @@ class BaseModelAdapter(ABC, nn.Module):
         requires_grad=True for force computation. All autograd.grad() calls use
         create_graph=False to avoid building second-order gradient graphs.
     """
+
+    #: eV. The duplicate-energy tolerance conformers from THIS backend are
+    #: deduplicated with: how far two optimizations of one minimum can land
+    #: apart at the convergence gate, which is a property of the backend's
+    #: kernels and of where its forces leave that gate. The orchestrator reads
+    #: it (through
+    #: :func:`Auto3D.engines.models.contract.duplicate_energy_tol_of`) and
+    #: passes it down to the conformer filter, which is a lower layer and
+    #: cannot ask which engine ran.
+    #:
+    #: Every adapter shipped here inherits this value, the shared
+    #: ``DEFAULT_DUPLICATE_ENERGY_TOL``, and none overrides it: the
+    #: 2026-10-16 measurement of the three bundled engines
+    #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
+    #: that moved between two runs an hour apart, and every per-engine value
+    #: it computed (0.050, 0.011 and 0.098 eV for AIMNet2, ANI2xt and ANI2x;
+    #: 1.9, 0.4 and 3.8 times kT at 298 K) reaches well into the gaps the
+    #: energy half of the duplicate test protects
+    #: (``benchmarks/results-notes/2026-10-19-rotamer-splittings.md``: 12, 11
+    #: and 13 distinct RMSD-passing pairs, spanning 0.17 to 5.5, 0.04 to 4.3
+    #: and 0.09 to 7.2 kcal/mol with medians of 1.3, 0.5 and 2.4, over three
+    #: repeats of a pool two of whose ten molecules produced every pair). Of
+    #: the pairs whose polar hydrogens moved to another rotor well, those
+    #: windows merge 6 of AIMNet2's 12 and 3 of ANI2xt's 10 in every repeat
+    #: and 3 or 4 of ANI2x's 12 depending on the repeat, against 1, 2 and 1
+    #: for this constant, which ANI2xt's 0.011 eV is also within rounding of.
+    #: The AIMNet2 figures are the default ``aimnet2`` model's;
+    #: :class:`~Auto3D.engines.models.adapter.aimnet2.AIMNet2Adapter` also
+    #: serves ``aimnet2-2025``, ``aimnet2-nse`` and ``aimnet2-pd``, which have
+    #: no measurement of their own. The attribute is here so that an adapter
+    #: class CAN carry its own value, for a backend whose spread has been
+    #: measured; setting it on a subclass changes only that adapter's runs.
+    duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Refuse a subclass that supplies neither hook, at class-definition time.

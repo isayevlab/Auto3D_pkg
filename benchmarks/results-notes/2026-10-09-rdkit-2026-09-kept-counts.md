@@ -39,7 +39,18 @@
 the figures above are unchanged.)
 
 CC=CC (2-butene, heavy-atom budget 4 / kept 1): double-bond geometries among kept
-conformers — `{STEREOZ}` only.
+conformers — `{STEREOZ}` only. (Since 2026-10-14 the default budget for a rotor-free,
+two-or-more-heavy-atom molecule such as 2-butene is 16, not 4, wherever this note gives
+4 as its requested count for it below; see
+`benchmarks/results-notes/2026-10-14-conformer-budget-provenance.md`.)
+
+Re-measured on 2026-10-16 under the same shared environment (RDKit 2025.09.6) at the
+default budget 2-butene has since 2026-10-14, and at the requests either side of it:
+4 requested / 1 kept, `{STEREOZ}`; 5, 6, 8 and 16 requested / 2 kept each,
+`{STEREOE, STEREOZ}`. So the Z-only outcome recorded above belongs to the request of 4,
+not to RDKit 2025.09.6 as such: at this release's own default budget of 16 both
+geometries come out, and the crossover is at 5 requested. No 2026.9.1 measurement was
+made at 16; its figures below are at the request of 4.
 
 These numbers match the ones recorded in `Auto3D.domain.conformer_budget`'s docstring and
 the Unreleased/3.2.0 CHANGELOG bullet (glycerol 9 of 52/238; alpha-D-glucopyranose 12 of 16,

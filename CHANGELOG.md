@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-10-16
+
 ### Changed
 - The model adapter's `forward`, `energy` and `analytic_hessian` take an
   optional keyword `mults` (the spin multiplicity per molecule, or `None` for
   all singlets); callers written against 3.2.1 and custom NNPs
-  (`forward(coords, species, charges)`) are unaffected.
+  (`forward(species, coords, charges)`) are unaffected.
 - CI: test and documentation jobs install the CPU build of torch and cache pip
   downloads; the documentation link check runs weekly instead of on every pull
   request and can fail again; the documentation build's error gate reads the
@@ -20,8 +22,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are not repeated on the merge commit (branch protection requires an
   up-to-date branch instead); releases verify the tag, the merge gates and the
   built wheel before publishing.
+- The duplicate-conformer test reads its energy tolerance from the model
+  adapter that produced the energies. Every adapter Auto3D ships keeps
+  `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV, 0.23 kcal/mol), so for the same
+  input a run deduplicates exactly as 3.2.1 did; an adapter class can carry
+  its own `duplicate_energy_tol`, and conformers from that adapter are then
+  deduplicated with its value instead. `filter_conformers`,
+  `filter_unique_optimized` and `ConformerRanker` take the tolerance as a
+  parameter (`energy_tol`, `duplicate_energy_tol`), defaulting to the
+  constant, and the pipeline passes the adapter's value down to the filter.
+  The three bundled engines were measured for this release (three batch
+  arrangements, three repeats, one idle card, each largest case checked as
+  the same structure by the duplicate filter's own heavy-atom criterion):
+  the spread between two optimizations of the same starting structure reached
+  9.93e-3 eV (0.23 kcal/mol) for AIMNet2, 2.10e-3 eV (0.048 kcal/mol) for
+  ANI2xt and 1.95e-2 eV (0.45 kcal/mol) for ANI2x. Widening the tolerance to
+  five times each of those spreads -- 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
+  2.26 kcal/mol) -- was computed and rejected: the spreads themselves moved by
+  1.4x and 2.5x between two runs an hour apart, and the AIMNet2 and ANI2x
+  windows would merge conformer pairs that heavy-atom RMSD cannot separate,
+  which the energy half of this test exists to keep apart and whose gaps were
+  later measured over 12, 11 and 13 distinct pairs spanning 0.17 to 5.5, 0.04
+  to 4.3 and 0.09 to 7.2 kcal/mol, medians 1.3, 0.5 and 2.4
+  (`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`), while
+  ANI2xt's 0.011 eV (0.25 kcal/mol) sits inside its own measured span and is
+  within rounding of the constant. The measurement and that
+  reading are written up in
+  `benchmarks/results-notes/2026-10-16-batch-noise.md`.
+  Known limitation: ANI2x's measured spread is twice the tolerance (its total
+  energy is a float32 quantity, quantized at 3.91e-3 eV (0.090 kcal/mol)
+  near the largest of these molecules), so a true duplicate can survive as
+  two near-degenerate copies about 0.02 eV (0.46 kcal/mol) apart; AIMNet2's
+  measured spread sits just inside the tolerance and could land past it on
+  another run, while ANI2xt's is a fifth of it.
+- `OptimizationConfig.fire_constants` names which set of FIRE constants the
+  optimizer runs. Two sets are shipped, `auto3d` and `bitzek2006`
+  (`FIRE_CONSTANT_SETS` in `Auto3D.foundation.constants`); the field defaults
+  to `auto3d`, every shipped run uses it, and a name no set answers to is
+  rejected with a `ConfigurationError` naming the field rather than failing
+  inside an optimizer worker. The field is carried in
+  `OptimizationConfig.to_dict()` and reaches the optimizer as
+  `n_steps(..., fire_constants=...)`, so a caller can select the other set by
+  name without editing constants. Nothing changes for a run that does not set
+  it: `auto3d` holds the constants every release has used. The two sets were
+  measured against each other on one NVIDIA L40S for this release (AIMNet2 and
+  ANI2xt, four repeats per arm) and the `auto3d` default was kept, all three
+  clauses of the adoption rule failing on both engines; the measurement, the
+  rule and what it does not cover are written up in
+  `benchmarks/results-notes/2026-10-16-fire-constants.md`.
 
 ### Fixed
+- Tautomer enumeration no longer emits the mirror image of a legitimate
+  tautomer. A stereo element that every proton-shift route to a tautomer must
+  flatten is now emitted unspecified, so stereoisomer enumeration and enantiomer
+  removal handle it, while elements the shift leaves untouched keep the
+  configuration the input gave them (a center flanked by two independent
+  carbonyl migrations is emitted unspecified as well, which costs its epimers
+  downstream and never a wrong configuration). Fewer tautomer ids are emitted
+  for such inputs and their `@tautN` numbering changes; when stereoisomer
+  enumeration is disabled, a tautomer whose element was cleared is written
+  once per configuration (mirror pairs collapsed) with a warning.
 - The `aimnet2-nse` engine runs. It was registered but raised on its first
   forward because the model needs each molecule's spin multiplicity, which
   Auto3D never sent; the optimizer, the single-point energies and the
@@ -54,6 +114,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is kept; converting each absolute energy to eV first lost about ten digits
   to cancellation and placed such a conformer just outside an inclusive
   window.
+- The default conformer budget requests at least 16 embeddings for any
+  molecule with two or more heavy atoms (previously one per heavy atom for a
+  rotor-free molecule, so oxane requested 6 and kept 1; it now keeps 3), because
+  ring puckering is not a rotatable bond and the rotor term is zero for such
+  molecules. The budget's documentation now states what the published constants
+  estimate (how many low-energy conformers a molecule has, checked against the
+  authors' deposited data) and which parts of the expression are Auto3D's own.
+  A small rotor-free molecule with an unspecified stereo element and
+  stereoisomer enumeration disabled is now more likely to embed both
+  configurations among its conformers (2-butene does from 5 requests up under
+  RDKit 2025.09.6, and it requested 4 before; RDKit 2026.9.1 already mixes at
+  4), so a `k=1` result for such an input can change; the
+  existing warning about unspecified stereo already covers it.
+- The optimizer releases the CUDA cache once per chunk instead of after every
+  size bucket. The per-bucket release was measured on and off against the
+  production path on 2026-10-16 on one NVIDIA L40S (240 conformers in two size
+  buckets, four repeats per arm, AIMNet2 and ANI2xt): it lowered neither peak
+  reserved memory -- 10 MiB higher with it, on both engines, in every repeat,
+  which is below the 20 MiB the rule treats as this comparison's resolution --
+  nor the allocator's retry and out-of-memory counts, which were zero in every
+  arm. The release at the end of a chunk, after the output is written, and the
+  out-of-memory retry inside `BatchedEnergyForce` are unchanged. The
+  measurement and the rule it was read against are written up in
+  `benchmarks/results-notes/2026-10-16-empty-cache.md`, whose "What this
+  measurement exercises" bounds what it covers: two size buckets, so one
+  release beyond the per-chunk one, and no memory pressure in either arm.
+
+### Removed
+- `benchmarks/measure_empty_cache.py`, the cache-release measurement script, is
+  removed together with the per-bucket switch it measured: it selected each arm
+  by flipping `Optimizer.EMPTY_CACHE_PER_BUCKET`, which no longer exists. Its
+  record and the decision it produced are kept in
+  `benchmarks/results-notes/2026-10-16-empty-cache.md` and the JSON beside it,
+  and the script itself remains readable in the history at the commit that
+  record names. In the other benchmark files, only their cross-references to
+  the removed script changed (`benchmarks/bench_optimization_perf.py`,
+  `benchmarks/measure_fire_constants.py`, `benchmarks/measure_batch_noise.py`);
+  no other benchmark script's behavior changes.
 
 ## [3.2.1] - 2026-10-11
 

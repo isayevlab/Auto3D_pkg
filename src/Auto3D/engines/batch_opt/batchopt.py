@@ -185,6 +185,10 @@ def ensemble_opt(
         param["patience"],
         atom_mask=atom_mask,
         progress_cb=progress_cb,
+        # `.get`, not `param["fire_constants"]`: a hand-written param dict
+        # (the tests here, and any direct caller predating the key) carries no
+        # such entry and means the set every release has run.
+        fire_constants=param.get("fire_constants", "auto3d"),
     )
 
     return dict(
@@ -295,9 +299,6 @@ class Optimizer:
     # descriptor compute.
     BUCKET_SIZE_FACTOR = 4.0
 
-    EMPTY_CACHE_PER_BUCKET: bool = True
-    """Per-bucket ``empty_cache()`` switch; ``benchmarks/measure_empty_cache.py`` measures it on and off."""
-
     def _make_buckets(self, mols):
         """Group molecule indices into size-homogeneous buckets.
 
@@ -364,14 +365,22 @@ class Optimizer:
                 "This run contains open-shell records; each record's spin multiplicity "
                 "(an explicit 'multiplicity' property, otherwise unpaired electrons + 1) "
                 "is resolved and handed to the model. A model with a spin input uses it; "
-                "a model without one evaluates the molecule as a closed shell and says "
-                "so once."
+                "a one-channel AIMNet2 model evaluates the molecule as a closed shell "
+                "and says so once; other models without a spin input are silent."
             )
         # A closed-shell drawing carries no radical electrons, so the line
         # above cannot see it and the resolver returns 1: the record is
         # optimized as a singlet, which for O=O is the wrong state.
+        #
+        # Gated on the resolved multiplicity, not on the drawing alone: a
+        # record that carries an explicit 'multiplicity' property IS optimized
+        # at its ground state, so warning about it would name a problem this
+        # run does not have. `mults` is the resolver's own output for these
+        # very records, in this order, which is why the two are zipped
+        # strictly.
         if not self._noted_drawn_closed_shell and any(
-            drawn_closed_shell_but_open_shell(m) for m in bucket_mols
+            mult == 1.0 and drawn_closed_shell_but_open_shell(m)
+            for m, mult in zip(bucket_mols, mults.tolist(), strict=True)
         ):
             self._noted_drawn_closed_shell = True
             logger.warning(
@@ -477,14 +486,19 @@ class Optimizer:
                 coords_out[orig_i] = optdict["coord"][local_i]
                 non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
-            # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
-            # or fragment across many buckets. The final empty_cache() in run()
-            # still runs after all output is written. EMPTY_CACHE_PER_BUCKET
-            # gates this call so benchmarks/measure_empty_cache.py can measure
-            # it on and off against the production path.
-            if self.EMPTY_CACHE_PER_BUCKET and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
+        # No per-bucket empty_cache() here: the release in run(), after the
+        # chunk's output is written, is the only unconditional one this class
+        # makes. BatchedEnergyForce still releases the cache on its
+        # out-of-memory retry path (model_wrapper.py), reached from inside this
+        # loop, and that release is unchanged. A release after every size
+        # bucket was measured on and off against this production path and
+        # lowered neither peak reserved memory nor the allocator's retry and
+        # out-of-memory counts, on either AIMNet2 or ANI2xt (one NVIDIA L40S,
+        # 240 conformers in two size buckets, four repeats):
+        # ``benchmarks/results-notes/2026-10-16-empty-cache.md``,
+        # whose "What this measurement exercises" bounds what that covers --
+        # two size buckets, so one release beyond the per-chunk one, and no
+        # memory pressure in either arm.
         return _OptimizationResults(
             energies=energies,
             fmaxs=fmaxs,
