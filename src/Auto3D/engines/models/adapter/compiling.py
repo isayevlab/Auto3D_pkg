@@ -136,17 +136,18 @@ def _warn_if_compile_fell_back_to_eager(adapter: _CompileTrackedAdapter) -> None
     once per *increase* in the suppressed count (``_compile_suppressed_seen``).
 
     Checked on every forward rather than once, because whether a compiled
-    frame falls back can change after the first observation: Dynamo
-    0/1-specializes
-    the seven per-element index tensors ``ANI2xt`` builds, so each distinct
-    element-presence pattern is a fresh recompile, and once
-    ``torch._dynamo.config.recompile_limit`` is reached the frame runs
-    eager for the rest of the process (measured on CPU: total 9, ok 8).
-    The one allowed observation, meanwhile, is spent on the
-    compiled-vs-eager probe forward ``create_model`` runs at construction
-    -- a frame that by construction compiles cleanly -- so the real
-    fallback, hundreds of steps later, would never be reported by a single
-    check. The
+    frame falls back can change after the first observation. ``ANI2xt`` was
+    the worked example: Dynamo 0/1-specialized the seven per-element index
+    tensors it builds, so each distinct element-presence pattern was a fresh
+    recompile and the frame ran eager for the rest of the process once
+    ``torch._dynamo.config.recompile_limit`` was reached. That one is fixed
+    (``Auto3D.engines.models.adapter.ani._quantize_index_shapes``), but
+    nothing here depends on it staying fixed, and the third-party compiled
+    frames named above can still degrade. The one allowed observation,
+    meanwhile, is spent on the compiled-vs-eager probe forward
+    ``create_model`` runs at construction -- a frame that by construction
+    compiles cleanly -- so a fallback hundreds of steps later would never be
+    reported by a single check. The
     factory re-baselines ``_compile_frame_stats_before`` and this count
     after that probe, so the probe's own frame is excluded from these
     deltas.

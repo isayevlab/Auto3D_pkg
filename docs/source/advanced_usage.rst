@@ -138,15 +138,13 @@ Python API:
    disagree); a TorchScript archive is already a compiled graph and is not
    recompiled.
 
-   No speedup figure is documented here for ``ANI2xt`` because none has been
-   measured on this codebase. Earlier versions of these docs quoted "~1.25x";
-   that number had no measurement behind it, and for ANI2xt it could not have
-   come from the model at all -- ``ANI2xt.forward`` used to contain a
-   data-dependent branch inside its per-element loop, which made Dynamo skip
-   the entire frame and compile **zero** subgraphs. That loop is now
-   compilable (one subgraph), so a gain is at least possible; whether there
-   is one, and how large, is a GPU measurement. Run
-   ``benchmarks/run_perf_ab.sh`` to get a number for your hardware -- it
+   Earlier versions of these docs quoted "~1.25x" for ``ANI2xt`` with no
+   measurement behind it, and for ANI2xt that number could not have come from
+   the model at all -- ``ANI2xt.forward`` used to contain a data-dependent
+   branch inside its per-element loop, which made Dynamo skip the entire
+   frame and compile **zero** subgraphs. That loop is now compilable, and
+   measured: see *What compiling ANI2xt buys* below. Run
+   ``benchmarks/run_perf_ab.sh`` to get a number for your own hardware -- it
    reports eager and compiled ANI2xt side by side.
 
 Measured, on one box
@@ -176,9 +174,31 @@ against 17.2 s eager, the compiled first forward taking about 18.7 s longer than
 the eager one (``benchmarks/results-notes/2026-10-09-bucket-policy.md``).
 
 Below the break-even the compile costs more than it saves; above it the saving
-grows with the run. The flag therefore stays off by default. ``ANI2xt``
-compiles only its per-element networks and no figure is claimed for it;
-``ANI2x`` ignores the flag.
+grows with the run. The flag therefore stays off by default. ``ANI2x`` ignores
+it entirely.
+
+What compiling ANI2xt buys
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``ANI2xt`` compiles only its per-element networks, and until the index-padding
+fix a long run got nothing for it: each distinct combination of which elements
+are present specialized the compiled frame, and past Dynamo's recompile limit
+the frame ran eager for the rest of the process with no error and no warning.
+
+Measured on an NVIDIA L40S (sm_89, driver 595.71.05, torch 2.9.1+cu128) over
+32 element-presence patterns, two independent samples, forward pass with
+forces (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``):
+
+- the whole pattern set now compiles **twice**, with nothing suppressed,
+  against nine attempts of which one was suppressed and run eager before;
+- at 64 and 256 conformers per batch, 1.17x and 1.20x eager (95% bootstrap
+  intervals 1.09 to 1.20 and 1.16 to 1.24);
+- at 1 and 8 conformers per batch, within noise of eager -- not slower, and
+  not demonstrably faster.
+
+Those are per-forward figures on one card. The cold compile is not in them and
+is still paid once per process, so the break-even argument above applies
+unchanged, and the flag stays off by default.
 
 Batch Size Tuning
 ~~~~~~~~~~~~~~~~~

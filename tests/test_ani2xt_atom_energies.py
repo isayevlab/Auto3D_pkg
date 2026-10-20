@@ -39,6 +39,11 @@ import pytest
 import torch
 from torch import nn
 
+from Auto3D.engines.models.adapter.ani import (
+    _PAD_QUANTUM,
+    _pad_index_to_quantum,
+    _quantize_index_shapes,
+)
 from Auto3D.engines.models.ani2xt import (
     NUM_ELEMENTS,
     _atom_energies,
@@ -332,6 +337,109 @@ class TestCompilation:
             count_graphs(
                 _reference_atom_energies, _networks(), species, _aev_for(species), fullgraph=True
             )
+
+
+class TestIndexQuantization:
+    """The index padding that keeps the compiled loop from being specialized away.
+
+    ``ANI2xtAdapter`` installs
+    :func:`Auto3D.engines.models.adapter.ani._quantize_index_shapes` around the
+    compiled ``_atom_energies``. These tests are its unit: that no index
+    tensor it produces is 0- or 1-sized, that the scratch rows it adds are
+    distinct from each other, and that the energies come back unchanged. The
+    end-to-end claim -- that the whole element-presence pattern set then
+    compiles a bounded number of times -- is
+    ``tests/test_compile_values.py::test_ani2xt_compile_does_not_hit_the_recompile_limit``.
+    """
+
+    @pytest.mark.parametrize(
+        ("count", "expected"),
+        [(0, 8), (1, 8), (7, 8), (8, 8), (9, 16), (16, 16), (17, 24)],
+    )
+    def test_pads_to_a_positive_multiple_of_the_quantum(self, count, expected):
+        """Including ``count == 0``, whose next multiple of 8 is 0, not 8.
+
+        The absent element is the common case, not an edge one -- most batches
+        carry three or four of the seven -- so a bare ``ceil(n / q) * q`` would
+        leave exactly the 0-sized tensor the padding exists to remove.
+        """
+        idx = torch.arange(count, dtype=torch.long)
+        assert _pad_index_to_quantum(idx, 1000).shape[0] == expected
+
+    def test_an_exact_multiple_is_returned_untouched(self):
+        """No copy when there is nothing to add."""
+        idx = torch.arange(16, dtype=torch.long)
+        assert _pad_index_to_quantum(idx, 1000) is idx
+
+    def test_scratch_rows_are_consecutive_and_distinct(self):
+        """Distinct, so the ``index_copy`` they feed has no duplicate target.
+
+        A duplicate target is nondeterministic by definition, and Auto3D lets
+        a caller ask for ``torch.use_deterministic_algorithms``
+        (``Auto3D.engines.torch_config``); consecutive scratch rows keep the
+        padding out of that question entirely.
+        """
+        idx = torch.tensor([4, 9], dtype=torch.long)
+        padded = _pad_index_to_quantum(idx, 100)
+        assert padded[:2].tolist() == [4, 9]
+        assert padded[2:].tolist() == list(range(100, 106))
+        assert len(set(padded.tolist())) == padded.shape[0]
+
+    def test_dtype_and_device_survive(self):
+        idx = torch.tensor([3], dtype=torch.long)
+        padded = _pad_index_to_quantum(idx, 50)
+        assert padded.dtype == idx.dtype
+        assert padded.device == idx.device
+
+    @pytest.mark.parametrize("label", list(_SPECIES_CASES))
+    def test_wrapper_returns_the_unpadded_energies(self, label):
+        """The same energies as calling ``_atom_energies`` with the raw indices.
+
+        The scratch rows carry a zero AEV, every network maps that to a finite
+        number, and those rows land in output slots the wrapper slices off --
+        so the rows that survive are the unpadded ones.
+
+        Close, not bit-identical, and the difference is not in the padding's
+        arithmetic: each network now runs over a few more rows, and a float32
+        GEMM over a different number of rows is free to reduce in a different
+        order. Measured over these cases the gap is one to two float32 ULP
+        (<= 1.2e-07 on values of order 1), the same order as the
+        compiled-versus-eager gap this adapter already accepts and two
+        decades under ``COMPILE_PROBE_TOLERANCE_EV``. Rows belonging to no
+        element must still be exactly zero, which is checked separately
+        below, because that one is structural rather than arithmetic.
+        """
+        species = _SPECIES_CASES[label].long()
+        networks = _networks()
+        n_rows = species.numel()
+        flat = _aev_for(species).reshape(n_rows, AEV_DIM)
+        index = element_indices(species)
+
+        plain = _atom_energies(networks, flat, index, n_rows)
+        padded = _quantize_index_shapes(_atom_energies)(networks, flat, index, n_rows)
+
+        assert padded.shape == plain.shape
+        assert torch.allclose(padded, plain, rtol=0.0, atol=1e-6)
+        untouched = plain == 0
+        assert torch.equal(padded[untouched], plain[untouched])
+
+    def test_the_wrapper_leaves_no_zero_or_one_sized_index(self):
+        """What the whole recipe is for, asserted on the indices themselves."""
+        seen: list[int] = []
+
+        def spy(networks, aev_flat, elem_index, n_rows):
+            seen.extend(int(idx.shape[0]) for idx in elem_index)
+            return _atom_energies(networks, aev_flat, elem_index, n_rows)
+
+        species = torch.tensor([[0, 1, 2, -1, -1, -1, -1, -1]])
+        n_rows = species.numel()
+        flat = _aev_for(species).reshape(n_rows, AEV_DIM)
+        raw = element_indices(species)
+
+        assert min(int(idx.shape[0]) for idx in raw) <= 1  # the premise
+        _quantize_index_shapes(spy)(_networks(), flat, raw, n_rows)
+        assert seen and min(seen) >= 2
+        assert all(size % _PAD_QUANTUM == 0 for size in seen)
 
 
 class TestSelfAtomicEnergies:
