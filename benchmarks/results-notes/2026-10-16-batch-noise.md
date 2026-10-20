@@ -508,3 +508,29 @@ are not independent evidence; nothing here separates run-to-run variation
 from composition beyond those two cuts. Two different starts that fall into
 one minimum are bounded by the same force gate, but are not what was
 measured.
+
+## 10. Addendum, 2026-10-20: the rotamer band has since been measured
+
+Nothing above is changed by this; the body and every number in it stand as
+recorded on 2026-10-16. Two statements in it have since been overtaken, and
+this says so rather than editing them.
+
+The "roughly 0.5 to 1.5 kcal/mol (0.022 to 0.065 eV)" that section 5's reading
+quotes for hydroxyl-rotamer splittings was uncited when this note was written.
+It has now been measured, in
+`benchmarks/results-notes/2026-10-19-rotamer-splittings.md`: over three
+repeats of a 164-conformer production pool, the gaps between optimized
+conformers that the duplicate filter's heavy-atom criterion already calls
+identical have an interquartile range of 0.042 to 0.152 eV (0.96 to
+3.5 kcal/mol) for AIMNet2, 0.004 to 0.098 eV (0.10 to 2.3 kcal/mol) for ANI2xt
+and 0.063 to 0.244 eV (1.4 to 5.6 kcal/mol) for ANI2x. The old band is
+narrower than any of the three and sits below two of the three medians.
+
+Section 7's second point says that "no measurement in this repository bounds"
+how close two DIFFERENT minima can be. **That is no longer true**, and the
+note above is the one that bounds it. The conclusion section 5 reached is
+unaffected and is strengthened: each per-engine window computed here stands
+above its own engine's lower quartile in that measurement and would merge 18
+of 36 AIMNet2 pairs, 12 of 33 ANI2xt pairs and 13 of 37 ANI2x pairs. The one
+sub-claim the later measurement contradicts is that ANI2xt's 0.011 eV sits
+below the band; 12 of its 33 pairs sit below that window.
