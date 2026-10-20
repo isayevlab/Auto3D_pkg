@@ -1,4 +1,4 @@
-"""P-C1: compile_model=True must not change energies. Reproduces on CPU."""
+"""compile_model=True must not change energies. Reproduces on CPU."""
 
 import itertools
 import logging
@@ -132,33 +132,25 @@ def test_ani2xt_compiled_matches_eager_on_cpu():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "P-m21 is not fixed: on torch 2.9.1+cu128, mark_dynamic does not stop "
-        "Dynamo's 0/1 specialization once seven simultaneously varying, "
-        "frequently 0/1-sized index tensors are involved (measured: total 9, "
-        "ok 8); mark_unbacked instead raises GuardOnDataDependentSymNode "
-        "inside Inductor's constant-folding pass; and stacking "
-        "backed_size_oblivious=True with use_duck_shape=False and "
-        "joint_graph_constant_folding=False only trades that failure for a "
-        "broadcast-lowering guard on the same size-1 question -- three "
-        "compounding specialization mechanisms, no combination of which "
-        "removes it. strict=True so this flips loudly once a real fix lands "
-        "(a torch upgrade, or a working alternative to mark_dynamic)."
-    ),
-)
 def test_ani2xt_compile_does_not_hit_the_recompile_limit():
-    """P-m21: distinct element-presence patterns must not exhaust Dynamo's
-    recompile budget and fall back to eager with no error or warning.
+    """Distinct element-presence patterns must not exhaust Dynamo's recompile
+    budget and fall back to eager with no error or warning.
 
     Each distinct pattern of which elements are present 0/1-specializes
-    ``element_indices``'s per-element row-index tensors, so without a working
-    fix every new pattern is a fresh compile; past
+    ``element_indices``'s per-element row-index tensors, so without a fix
+    every new pattern is a fresh compile; past
     ``torch._dynamo.config.recompile_limit`` of those, Dynamo runs the frame
-    eager for the rest of the process (measured on CPU: total 9, ok 8) --
-    silently, since ``compile_model=True`` asked for compilation, not a
-    guarantee, and nothing downstream checks whether it got one.
+    eager for the rest of the process -- silently, since
+    ``compile_model=True`` asked for compilation, not a guarantee, and nothing
+    downstream checks whether it got one.
+
+    What keeps this passing is
+    ``Auto3D.engines.models.adapter.ani._quantize_index_shapes``, which rounds
+    every index tensor up to a positive multiple of ``_PAD_QUANTUM`` so there
+    is no 0 and no 1 left to specialize on. Remove it and this fails: the
+    whole pattern set compiles twice with it and nine times without, one of
+    those nine suppressed and run eager
+    (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``).
     """
     pytest.importorskip("torchani")
     import torch._dynamo
@@ -180,7 +172,20 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
             )
             adapter.forward(coord, species, charges, atom_mask=mask)
         after = counters["frames"]
-        assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)
+        total = after["total"] - before.get("total", 0)
+        assert total == after["ok"] - before.get("ok", 0)
+        # And the budget was not merely survived but barely touched. Without
+        # the bound, a partial regression that compiled once per pattern
+        # would still pass the line above -- the pattern set here is
+        # recompile_limit + 2 long, so seven fresh compiles stay under the
+        # limit and suppress nothing. Measured on CPU: ONE compile for the
+        # whole set. (The note's GPU figure of two counts the probe forward
+        # `create_model` runs at construction, which `before` is snapshotted
+        # after and which is therefore not in this delta.) The bound is one
+        # above the measured value, so an extra compile from a torch or
+        # hardware difference is tolerated and a per-pattern regression is
+        # not.
+        assert total <= 2, f"{total} compiles for the pattern set; expected 1"
     finally:
         torch._dynamo.reset()
 

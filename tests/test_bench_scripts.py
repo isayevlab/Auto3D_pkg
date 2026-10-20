@@ -551,3 +551,111 @@ def test_the_bench_environment_block_records_what_makes_a_record_comparable():
     assert env["rdkit"] is not None
     # And the whole block still survives the strict dump every record gets.
     json.dumps(env, allow_nan=False)
+
+
+def test_measure_mark_dynamic_builds_its_parser_through_the_shared_helper():
+    """The index-padding script does not spell the shared arguments its own way.
+
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` are
+    spelled once, in ``bench_optimization_perf.bench_arg_parser``, so two runs
+    of two scripts are invoked alike. A local ``add_argument`` for one of them
+    would be free to drift -- a different default, a missing type -- with
+    nothing to catch it until someone compared two records that were not
+    measured the same way. ``--batches`` is this script's own and is not on
+    that list.
+    """
+    tree = ast.parse((REPO / "benchmarks" / "measure_mark_dynamic.py").read_text())
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "bench_arg_parser"
+    ]
+    assert len(calls) == 1
+    (call,) = calls
+    keywords = {k.arg: k.value for k in call.keywords}
+    # The value, not just the keyword: this is a timing script whose verdict
+    # is read off medians, and each arm is run twice, so the default is the
+    # per-pass repeat count that makes the pooled median worth taking. A
+    # default of 1 or 3 would report a median of far fewer samples under the
+    # same name.
+    assert isinstance(keywords["reps"], ast.Constant)
+    assert keywords["reps"].value == 11
+    own_arguments = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_argument":
+            first = node.args[0] if node.args else None
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                own_arguments.add(first.value)
+    assert not own_arguments.intersection({"--reps", "--limit", "--out", "--device", "--engines"})
+
+
+def _mark_dynamic_module():
+    """Import the index-padding script, which lives outside the package."""
+    import measure_mark_dynamic
+
+    return measure_mark_dynamic
+
+
+def _mark_dynamic_arms(padded_seconds, *, compiles=2, suppressed=0):
+    """Two arms in the shape ``decision`` reads, with the eager row fixed at 1.0 s."""
+    sizes = ("1", "8")
+    return {
+        "eager": {
+            "frames_per_pass": [{"total": 0, "ok": 0, "suppressed": 0}] * 2,
+            "batches": {size: {"median_s": 1.0} for size in sizes},
+        },
+        "compiled_padded": {
+            "frames_per_pass": [
+                {"total": compiles, "ok": compiles - suppressed, "suppressed": suppressed}
+            ]
+            * 2,
+            "batches": {
+                size: {"median_s": seconds}
+                for size, seconds in zip(sizes, padded_seconds, strict=True)
+            },
+        },
+    }
+
+
+def test_the_mark_dynamic_verdict_needs_both_clauses():
+    """``decision`` adopts only when the budget held AND every batch got faster.
+
+    The three failing shapes are the three the measurement could have
+    produced: faster everywhere but with a compile suppressed, within budget
+    but slower at one batch size, and within budget but over it. Each has to
+    reach no-adopt on its own, because the rule is a conjunction and a bug
+    that dropped either clause would still pass a test that only exercised
+    the happy path.
+    """
+    module = _mark_dynamic_module()
+
+    adopt = module.decision(_mark_dynamic_arms((0.8, 0.8)), recompile_limit=8)
+    assert adopt["clause_a_limit_never_exhausted"] is True
+    assert adopt["clause_b_faster_than_eager"] is True
+    assert adopt["verdict"] == "adopt"
+    assert adopt["eager_over_padded"] == {"1": 1.25, "8": 1.25}
+    assert adopt["slowest_relative_to_eager"] == 1.25
+
+    # Slower at the smallest batch only. The rule reads every batch size, so
+    # one row at parity (not even slower, exactly equal) is already no-adopt.
+    at_parity = module.decision(_mark_dynamic_arms((1.0, 0.8)), recompile_limit=8)
+    assert at_parity["clause_a_limit_never_exhausted"] is True
+    assert at_parity["clause_b_faster_than_eager"] is False
+    assert at_parity["verdict"] == "no-adopt"
+
+    suppressed = module.decision(_mark_dynamic_arms((0.8, 0.8), suppressed=1), recompile_limit=8)
+    assert suppressed["clause_a_limit_never_exhausted"] is False
+    assert suppressed["verdict"] == "no-adopt"
+
+    over_budget = module.decision(_mark_dynamic_arms((0.8, 0.8), compiles=9), recompile_limit=8)
+    assert over_budget["clause_a_limit_never_exhausted"] is False
+    assert over_budget["verdict"] == "no-adopt"
+
+
+def test_the_mark_dynamic_verdict_refuses_an_arm_that_did_not_run():
+    """A missing arm is no-adopt, not a crash and not a silent adopt."""
+    module = _mark_dynamic_module()
+
+    missing = module.decision({"eager": {"error": "DependencyError: torchani"}}, recompile_limit=8)
+    assert missing["clause_a_limit_never_exhausted"] is None
+    assert missing["verdict"] == "no-adopt"

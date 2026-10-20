@@ -192,8 +192,10 @@ Environment variables
 New environment variables for runtime configuration:
 
 - ``AUTO3D_COMPILE_MODEL=1`` - Enable torch.compile for ANI2xt (ANI2x ignores
-  it with a warning; off by default; no speedup figure is documented because
-  none has been measured -- see :doc:`advanced_usage`)
+  it with a warning; off by default; measured at 1.07x to 1.24x eager per
+  forward at 64 and 256 conformers per batch and within noise of eager below
+  that, excluding the once-per-process cold compile -- see
+  :doc:`advanced_usage`)
 - ``AIMNET_CACHE_DIR`` - Override the AIMNet2 model download cache (default: ``~/.cache/aimnet``)
 
 .. note::

@@ -5,7 +5,7 @@ Cut from this package's single-file predecessor.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import torch
 import torch.nn as nn
@@ -18,6 +18,108 @@ from Auto3D.foundation.constants import HARTREE_TO_EV
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+#: Row-count quantum for the compiled per-element loop's index tensors. Every
+#: such tensor is padded up to a positive multiple of this, so Dynamo never
+#: sees one sized 0 or 1 and cannot 0/1-specialize the compiled frame on it.
+#: 8 and 32 are the two values the recipe names; 8 is the smaller, and the
+#: padding is pure overhead, so it is the one measured.
+_PAD_QUANTUM = 8
+
+#: Whether :meth:`ANI2xtAdapter._compile` installs that padding. Read at
+#: compile-install time, so one process can build an adapter under each
+#: setting and measure both; it reaches nothing outside
+#: ``compile_model=True``, which is off by default.
+#: See ``benchmarks/measure_mark_dynamic.py``.
+_PAD_INDEX_TO_QUANTUM = True
+
+
+def _pad_index_to_quantum(idx: torch.Tensor, scratch_start: int) -> torch.Tensor:
+    """``idx`` extended to a positive multiple of :data:`_PAD_QUANTUM`.
+
+    The padding rows are ``scratch_start``, ``scratch_start + 1``, ... --
+    consecutive and therefore distinct, so the ``index_copy`` they feed has no
+    duplicate target and stays deterministic under
+    ``torch.use_deterministic_algorithms``, which Auto3D lets a caller request
+    (``Auto3D.engines.torch_config``). The caller gives each element a block of
+    :data:`_PAD_QUANTUM` scratch rows of its own, which is the most any one
+    element can need.
+
+    The target is ``max(q, ceil(n / q) * q)``, not the bare ``ceil``: an
+    element absent from the batch has ``n == 0``, whose next multiple of ``q``
+    is 0, and a 0-sized tensor is exactly the thing this is here to prevent --
+    the common case, not an edge one, since most batches carry three or four
+    of the seven elements.
+    """
+    n = int(idx.shape[0])
+    quanta = max(1, -(-n // _PAD_QUANTUM))
+    target = quanta * _PAD_QUANTUM
+    if target == n:
+        return idx
+    pad = torch.arange(target - n, dtype=idx.dtype, device=idx.device) + scratch_start
+    return torch.cat([idx, pad])
+
+
+def _quantize_index_shapes(
+    atom_energies_fn: Callable[..., torch.Tensor],
+) -> Callable[..., torch.Tensor]:
+    """Wrap the compiled per-element loop so no index tensor it sees is 0/1-sized.
+
+    Each distinct element-presence pattern across a run 0/1-specializes
+    ``element_indices``'s seven per-element row-index tensors, so past
+    ``torch._dynamo.config.recompile_limit`` of those patterns the compiled
+    frame silently falls back to eager. Rounding every index tensor up to a
+    positive multiple of :data:`_PAD_QUANTUM` leaves Dynamo no 0 or 1 to
+    specialize on, and ``mark_dynamic`` on the padded dimension then asks for
+    one graph covering the rest.
+
+    The padding runs **outside** the compiled callable, which is why this
+    wraps the result of ``_try_compile`` rather than the other way round:
+    :func:`_pad_index_to_quantum` reads ``idx.shape[0]`` as a Python integer
+    and branches on it, and inside a graph that branch would be a guard --
+    another specialization, in place of the one being removed. Reading the
+    shape costs nothing here: ``element_indices`` already took its one host
+    readback, so these tensors have concrete sizes and no synchronization is
+    added.
+
+    The cost, paid on every forward: one copy of ``aev_flat``, and up to
+    ``_PAD_QUANTUM`` extra MLP rows per element (56 at ``_PAD_QUANTUM`` 8)
+    whose energies are computed and discarded. Scratch rows carry a zero AEV,
+    which every network maps to a finite number, and they land in scratch
+    slots of the output that the slice below drops. The ``torch.cat``
+    duplicates the whole AEV block and autograd keeps it for the backward
+    pass, which measured as 57.5 MiB (14.3%) of extra peak allocation on the
+    32-pattern sweep, identical in every pass of both samples.
+
+    The rows that survive the slice are *not* bit-identical to the unpadded
+    result, which is the thing this docstring would otherwise imply. Each
+    network now runs over a few more rows, and a float32 matrix multiply over
+    a different row count is free to reduce in a different order: one to two
+    float32 ULP, measured at 1.47e-06 eV against eager over the pattern set
+    -- between the two readings of the unpadded compile it replaces, and
+    three decades under the tolerance ``create_model``'s construction probe
+    applies. Reordered arithmetic, not an error term that grows.
+    """
+
+    def padded(
+        networks: nn.ModuleList | Sequence[nn.Module],
+        aev_flat: torch.Tensor,
+        elem_index: list[torch.Tensor],
+        n_rows: int,
+    ) -> torch.Tensor:
+        num_elements = len(elem_index)
+        scratch_rows = num_elements * _PAD_QUANTUM
+        aev_ext = torch.cat([aev_flat, aev_flat.new_zeros((scratch_rows, aev_flat.shape[-1]))])
+        torch._dynamo.mark_dynamic(aev_ext, 0)
+        padded_index = []
+        for position, idx in enumerate(elem_index):
+            padded_idx = _pad_index_to_quantum(idx, n_rows + position * _PAD_QUANTUM)
+            torch._dynamo.mark_dynamic(padded_idx, 0)
+            padded_index.append(padded_idx)
+        out = atom_energies_fn(networks, aev_ext, padded_index, n_rows + scratch_rows)
+        return out[:n_rows]
+
+    return padded
 
 
 class ANI2xtAdapter(BaseModelAdapter):
@@ -32,10 +134,21 @@ class ANI2xtAdapter(BaseModelAdapter):
     but returns energies off by hundreds of eV with no error raised. Only
     ``_atom_energies_fn`` -- the per-element loop, free of a data-dependent
     branch that would otherwise make it uncompilable on its own -- is
-    compiled (``tests/test_ani2xt_atom_energies.py``). Whether that is a
-    wall-clock win, and by how much, is a GPU measurement this repository does
-    not make; see ``benchmarks/bench_optimization_perf.py``. No speedup figure
-    is claimed here because none has been measured.
+    compiled (``tests/test_ani2xt_atom_energies.py``), with its index tensors
+    padded by :func:`_quantize_index_shapes` so the frame is not
+    0/1-specialized out of existence.
+
+    What that buys, measured on one L40S over 32 element-presence patterns in
+    two sessions (``benchmarks/results-notes/2026-10-19-mark-dynamic.md``):
+    the compiled frame stops falling back to eager (two compiles for the whole
+    pattern set instead of nine, one of which was suppressed); at 64
+    conformers per batch it is 1.07x and 1.21x eager in the two sessions, and
+    at 256 conformers 1.18x and 1.24x; at 1 and 8 conformers it is within
+    noise of eager. The two sessions are quoted as a range rather than
+    summarized, because two is too few to put an interval on and they differ
+    by more than the within-session spread. Those are per-forward figures on
+    one card, not a whole-run speedup -- the cold compile is paid once per
+    process and is not in them.
     """
 
     # No `duplicate_energy_tol` here: :class:`BaseModelAdapter` carries the
@@ -81,14 +194,20 @@ class ANI2xtAdapter(BaseModelAdapter):
         # module (which includes torchani's AEVComputer) gives energies off by
         # hundreds of eV with no error raised. The AEV stays eager.
         #
-        # Attempted, not landed: each distinct element-presence
-        # pattern across a run 0/1-specializes `element_indices`'s seven
-        # per-element row-index tensors, so past
+        # Each distinct element-presence pattern across a run 0/1-specializes
+        # `element_indices`'s seven per-element row-index tensors, so past
         # `torch._dynamo.config.recompile_limit` of those patterns the frame
-        # silently falls back to eager (measured: total 9, ok 8).
-        # `torch._dynamo.mark_dynamic` on `aev_flat` and each `elem_index[i]`
-        # does not fix this on torch 2.9.1+cu128: with seven simultaneously
-        # varying, frequently 0/1-sized dims, Dynamo's own 0/1 specialization
+        # silently falls back to eager. `_quantize_index_shapes` removes the 0
+        # and the 1 from those sizes before Dynamo sees them, so there is
+        # nothing left for that specialization to fire on; see its docstring
+        # for the cost, and
+        # `benchmarks/results-notes/2026-10-19-mark-dynamic.md` for what it
+        # buys.
+        #
+        # Why the padding and not one of the direct knobs, which is the first
+        # question this raises: `torch._dynamo.mark_dynamic` alone does not
+        # fix it on torch 2.9.1+cu128 -- with seven simultaneously varying,
+        # frequently 0/1-sized dims, Dynamo's own 0/1 specialization
         # recompiles anyway ("to avoid specialization try
         # torch._dynamo.mark_unbacked"); `mark_unbacked` instead raises
         # `GuardOnDataDependentSymNode: Eq(u7, 0) | Eq(u7, 1)` inside
@@ -97,11 +216,13 @@ class ANI2xtAdapter(BaseModelAdapter):
         # `use_duck_shape = False` and
         # `torch._inductor.config.joint_graph_constant_folding = False` only
         # trades that failure for a broadcast-lowering guard on the same
-        # size-1 question. No config combination tried removes the
-        # specialization. The compile below is unchanged from before this was
-        # attempted -- no mark_dynamic wrapper is installed, rather than
-        # landing a closure whose docstring claims a fix that does not hold.
-        model._atom_energies_fn = _try_compile(model._atom_energies_fn)
+        # size-1 question. Every one of those asks Dynamo to stop caring about
+        # the 0 and the 1; the padding removes them instead, which is the only
+        # form of the request this torch honors.
+        compiled = _try_compile(model._atom_energies_fn)
+        if _PAD_INDEX_TO_QUANTUM:
+            compiled = _quantize_index_shapes(compiled)
+        model._atom_energies_fn = compiled
         return model
 
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:

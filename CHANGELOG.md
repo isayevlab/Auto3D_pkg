@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `AUTO3D_COMPILE_MODEL=1` (`compile_model=True`) now keeps ANI2xt compiled
+  for a whole run. Each distinct combination of which of ANI2xt's seven
+  elements a batch contains leaves some per-element row-index tensors empty
+  or one row long, and Dynamo specializes a compiled frame on a 0- or 1-sized
+  dimension; past its recompile limit the frame ran eager for the rest of the
+  process, with no error and no warning, so a long run could be asking for
+  compilation and getting none. Every index tensor is now padded up to a
+  positive multiple of eight rows -- the added rows point at scratch rows
+  that are sliced away -- so there is no 0 and no 1 left to specialize on.
+  Measured on an NVIDIA L40S over 32 element-presence patterns, two sessions:
+  the whole set compiles twice with nothing suppressed, against nine attempts
+  of which one was suppressed and run eager before; the forward with forces is
+  1.07x and 1.21x eager at 64 conformers per batch in the two sessions and
+  1.18x and 1.24x at 256, and within noise of eager at 1 and 8. The two
+  sessions are given as a range because two is too few to put an interval on.
+  The padding costs one copy of the AEV block, kept for the backward pass --
+  57.5 MiB over the unpadded peak, a 14.3% rise -- and up to 56 discarded
+  network rows per forward; nothing reaches a run with the flag off, which is
+  the default. Energies agree with eager to 1.5e-06 eV over the pattern set
+  (not bit-identical: padding changes how many rows each matrix multiply
+  reduces over, which is one to two float32 ULP); forces agree to 1e-4 eV/A
+  in `tests/test_compile_values.py`. See
+  `benchmarks/results-notes/2026-10-19-mark-dynamic.md`.
+
 ## [3.2.2] - 2026-10-16
 
 ### Changed
