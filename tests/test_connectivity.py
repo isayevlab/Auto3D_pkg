@@ -89,7 +89,7 @@ class TestCheckConnectivity:
         assert isinstance(result, bool)
 
     def test_p_c_bond_uses_phosphorus_largest_uff_radius_not_silicons(self):
-        """N-m26: phosphorus had silicon's radius, not its own.
+        """Phosphorus had silicon's radius, not its own.
 
         The old table entry for P (15) was 1.117 -- Si's UFF radius, not
         P_3+3's 1.101 (Rappe et al. 1992, Table 1). ``check_connectivity``'s
@@ -152,7 +152,7 @@ class TestCheckConnectivity:
 
 
 class TestUntabulatedElementsAreReportedOncePerProcess:
-    """N-m27: "no opinion" must not be silent, and must not be a wall of lines.
+    """A "no opinion" result must not be silent, and must not be a wall of lines.
 
     Skipping every pair that involves an element outside the UFF radii table
     means check_connectivity returns True for a geometry it never actually

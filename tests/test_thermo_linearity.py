@@ -1,12 +1,12 @@
 """The thermochemistry uses the geometry the Hessian supports, and says which.
 
-N-M4: a bent stationary point whose O-C-O angle sits inside the linearity window
+A bent stationary point whose O-C-O angle sits inside the linearity window
 used to be projected as linear. The sixth external direction survived as a
 near-zero phantom vibration (0.05 cm-1 in these exact synthetic fixtures; up to
 ``fmax * sum|o_perp| / I_n``, about 9-28 cm-1, at Auto3D's real force gate), the
 quasi-harmonic floor raised it to 100 cm-1 (``N_raised_modes=1``), and the
-rotational partition function was the linear one. R27 then bounds the other half
-of the fix: the nonlinear ROTOR is used only above the classical-rotor floor,
+rotational partition function was the linear one. The other half of the fix
+bounds this: the nonlinear ROTOR is used only above the classical-rotor floor,
 since below it ASE's classical form is invalid and the linear rotor is the
 quantum limit. These tests drive ``do_mol_thermo`` on synthetic Hessians through
 the same seams ``tests/test_thermo_imaginary_mode_inversion.py`` uses; no model

@@ -321,9 +321,9 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
     yaml_path = repo_root / "docs" / "legacy-v2" / "parameters.yaml"
 
     # This file still spells two options the old way (`enumerate_isomer`,
-    # `mpi_np`, pre-P-m15); both are deprecated-but-accepted aliases for one
-    # release, which is exactly what this file is a fixture for -- so the
-    # warnings are expected, not swallowed.
+    # `mpi_np`, from before the rename); both are deprecated-but-accepted
+    # aliases for one release, which is exactly what this file is a fixture
+    # for -- so the warnings are expected, not swallowed.
     with pytest.warns(DeprecationWarning, match="Option name"):
         config = load_yaml_config(yaml_path)  # must not raise
     assert config.k == 1
@@ -356,9 +356,9 @@ def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
     assert yaml_path.exists(), "the migration guide names this file"
 
     # This file also still spells `enumerate_isomer`/`mpi_np` the old way
-    # (pre-P-m15); those are deprecated-but-accepted aliases for one release
-    # and are popped before the `tauto_k`/`tauto_window` rejection this test
-    # is actually about, so the warnings are expected here too.
+    # (from before the rename); those are deprecated-but-accepted aliases for
+    # one release and are popped before the `tauto_k`/`tauto_window` rejection
+    # this test is actually about, so the warnings are expected here too.
     with pytest.raises(ConfigurationError) as exc_info:
         with pytest.warns(DeprecationWarning, match="Option name"):
             load_yaml_config(yaml_path)

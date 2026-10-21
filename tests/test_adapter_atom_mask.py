@@ -226,9 +226,9 @@ class TestMaskReachesTheAdapterThroughTheStack:
         assert seen == [9, 3]
 
 
-# A padded batch handed over WITHOUT its mask is refused, not scored (P-M7). The
-# sentinel is read only to decide whether to raise -- never to build a mask, which
-# is the audit C13 rule the rest of this file pins. `species_pad` is 0 here, so a
+# A padded batch handed over WITHOUT its mask is refused, not scored. The
+# sentinel is read only to decide whether to raise -- never to build a mask,
+# which is the rule the rest of this file pins. `species_pad` is 0 here, so a
 # zero slot is either padding or a dummy `*` atom and this adapter cannot tell
 # which; scoring it silently is wrong under either reading.
 def test_aimnet2_refuses_a_multi_molecule_batch_without_a_mask():

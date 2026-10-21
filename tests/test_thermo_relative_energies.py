@@ -124,12 +124,12 @@ class TestGrouping:
 
         In a ``main()`` output ``_Name`` is *already* the group key, so applying
         ``species_id``'s strip (which only fires on a name ending in two
-        trailing integer groups, N-m4) a second time turns e.g. ``foo_1_2``
+        trailing integer groups) a second time turns e.g. ``foo_1_2``
         into ``foo`` and would merge compounds that merely share a prefix
-        (NEW-6: ``aspirin_analog_3`` no longer demonstrates this -- it has
+        (``aspirin_analog_3`` no longer demonstrates this -- it has
         only one trailing integer group, so ``species_id`` leaves it alone
         -- the same correction already applied in ``energy.py``'s own
-        docstrings, task m2).
+        docstrings).
         """
         mols = [
             _conformer("foo_1_2", -10.0),

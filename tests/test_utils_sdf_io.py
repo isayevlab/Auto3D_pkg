@@ -102,7 +102,7 @@ class TestSDF2chunks:
         assert reconstructed == original
 
     def test_sdf2chunks_does_not_split_on_a_dollar_line_inside_a_property(self, tmp_path):
-        """N-m30: a `$$$$` line inside an SD property VALUE is not the record
+        """A `$$$$` line inside an SD property VALUE is not the record
         terminator. A real terminator is preceded by `M  END` (directly, when
         the record carries no properties) or by the blank line that ends the
         last property's value -- not by arbitrary property text, which is
@@ -238,7 +238,7 @@ class TestNoneMolHardening:
     """
 
     def test_iter_conformer_records_skips_none_records(self, tmp_path, monkeypatch):
-        """N-m31: `count_sdf` is gone (zero production callers); its
+        """`count_sdf` is gone (zero production callers); its
         production-equivalent reader, `iter_conformer_records`, must not
         count (or crash on) a None record either."""
 
@@ -329,7 +329,7 @@ class TestSDF2chunksTrailingRecord:
     def test_trailing_record_without_terminator_preserved(self, tmp_path):
         """SDF2chunks keeps a terminator-less trailing record as its own chunk."""
         sdf = tmp_path / "ragged.sdf"
-        # First record is well-formed (M  END precedes its $$$$, N-m30);
+        # First record is well-formed (M  END precedes its $$$$);
         # second record lacks both.
         sdf.write_text("mol1\n  line1\nM  END\n$$$$\nmol2\n  line2\n  line3\n")
 
@@ -435,7 +435,7 @@ class TestIterConformerRecords:
         assert len(list(iter_conformer_records(str(tmp_path / "unused.sdf")))) == 3
 
     def test_iter_conformer_records_skips_records_with_implicit_hydrogens(self, tmp_path, caplog):
-        """N-C1: a heavy-atom-only 3D record would be scored as a different species."""
+        """A heavy-atom-only 3D record would be scored as a different species."""
         import logging
 
         from rdkit.Chem import AllChem
@@ -456,7 +456,7 @@ class TestIterConformerRecords:
         assert any("implicit hydrogen" in r.message for r in caplog.records)
 
     def test_iter_conformer_records_skips_dummy_atom_records(self, tmp_path, caplog):
-        """N-M3: a record carrying an R-group placeholder is not a species.
+        """A record carrying an R-group placeholder is not a species.
 
         AIMNet2 would score the dummy atom as a zero-feature ghost (its
         embedding index 0 is the padding slot), so the record must be dropped
@@ -508,13 +508,13 @@ class TestRecordSkipReason:
         assert record_skip_reason(Chem.AddHs(Chem.MolFromSmiles("CCO"))) == "no_conformer"
 
     def test_an_embedded_mol_with_implicit_hydrogens_is_reported_as_such(self):
-        # No AddHs: a 3D heavy-atom skeleton, the N-C1 case.
+        # No AddHs: a 3D heavy-atom skeleton.
         mol = self._embedded(Chem.MolFromSmiles("CCO"))
         assert record_skip_reason(mol) == "implicit_hydrogens"
 
     def test_an_embedded_mol_with_a_dummy_atom_is_reported_as_such(self):
         # Explicit H and a conformer, so only the dummy atom (atomic number 0)
-        # can be the reason -- the N-M3 case, checked after implicit hydrogens.
+        # can be the reason -- and it is checked after implicit hydrogens.
         mol = self._embedded(Chem.AddHs(Chem.MolFromSmiles("*CCO")))
         assert mol.GetNumConformers() == 1, "test premise: must embed"
         assert record_skip_reason(mol) == "dummy_atoms"

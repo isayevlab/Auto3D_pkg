@@ -1,11 +1,11 @@
-"""A/B the optimizer's bucket policy on the production path (WS6, Task 29; P-M2).
+"""A/B the optimizer's bucket policy on the production path.
 
 Policy ``size``: size-homogeneous buckets (``BUCKET_SIZE_FACTOR`` 1.25, the 3.1.x
 default). Policy ``merged``: one bucket per ``BUCKET_MAX_COUNT`` molecules (factor
 unbounded), every conformer padded to the chunk's largest molecule and
 sub-batched by ``batchsize_atoms`` as production does. The production value
-of ``BUCKET_SIZE_FACTOR`` is now 4.0 (this benchmark's own ADOPT verdict,
-R60), between these two policies rather than equal to either; see
+of ``BUCKET_SIZE_FACTOR`` is now 4.0 (this benchmark's own ADOPT verdict),
+between these two policies rather than equal to either; see
 ``Auto3D.engines.batch_opt.batchopt.Optimizer.BUCKET_SIZE_FACTOR``.
 
 Drives ``Auto3D.engines.batch_opt.batchopt.Optimizer`` end to end on an SDF of the

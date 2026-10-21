@@ -223,12 +223,12 @@ class TestHashTautSmi:
 
 
 class TestStripTautSuffix:
-    """N-m29: ``@taut`` only starts a suffix to strip when at least one
+    """``@taut`` only starts a suffix to strip when at least one
     digit immediately follows it -- exactly the shape ``hash_taut_smi``
     writes (``id + f"@taut{c}"``), optionally followed by exactly ONE
     ``_<isomer>_<conformer>`` suffix of its own
     (``id@tautN_<isomer>_<conformer>``, the shape ``select_tautomers``
-    reads). Chem review M5: tightened from an unbounded ``@taut\\d+.*$`` to
+    reads). The pattern was tightened from an unbounded ``@taut\\d+.*$`` to
     ``@taut\\d+(?:_\\d+_\\d+)?$`` -- the two producer-exact shapes only --
     so an id whose own text happens to continue past one of those two shapes
     is left alone rather than truncated.
@@ -322,7 +322,7 @@ class TestSmiles2SmiInvalidInput:
 
 
 class TestSmiles2SmiSkipsDummyAtoms:
-    """N-M3: `smiles2smi` is a record seam too, and it is the ID-minting one.
+    """`smiles2smi` is a record seam too, and it is the ID-minting one.
 
     `MolToInchiKey` returns the empty string for a dummy-atom molecule (RDKit
     logs "Invalid InChI prefix in generating InChI Key"), so such an input used
@@ -445,7 +445,7 @@ class TestIterSmiRecords:
 
 
 class TestWriteSmiRecords:
-    """P-m28: the writer side of ``iter_smi_records`` (R20)."""
+    """The writer side of ``iter_smi_records``."""
 
     def test_write_smi_records_round_trips_through_iter_smi_records(self, tmp_path):
         path = tmp_path / "x.smi"

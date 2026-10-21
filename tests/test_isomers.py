@@ -204,13 +204,14 @@ class TestCreateKwargMapping:
         assert kwargs["parallel_workers"] is None
 
     def test_n_jobs_is_a_deprecated_alias_for_n_threads(self, spies):
-        """Review fix round 1, Task I2: ``n_jobs`` had zero test coverage.
+        """``n_jobs`` had zero test coverage.
 
-        The brief's own CHANGELOG line documents ``IsomerEngineFactory.create(
+        The CHANGELOG documents ``IsomerEngineFactory.create(
         ..., n_jobs=...)`` as accepted "the same way" as ``Auto3DOptions``'s
         ``mpi_np``/``enumerate_isomer`` aliases -- warn, then rename. Every
-        other Step 7 alias (the ``Auto3DOptions`` kwargs, the CLI's hidden
-        flags) got a test proving the shim actually fires; this one did not.
+        other alias in that family (the ``Auto3DOptions`` kwargs, the CLI's
+        hidden flags) got a test proving the shim actually fires; this one
+        did not.
         """
         with pytest.warns(DeprecationWarning, match="n_threads"):
             IsomerEngineFactory.create(
@@ -559,7 +560,7 @@ class TestCreateTautomerEngine:
     def test_unknown_engine_raises_error(self):
         """An unknown engine is a ConfigurationError naming the alternatives,
         through the same Registry every other backend lookup in the package
-        uses now (P-m13) -- not a hand-written message of its own."""
+        uses now -- not a hand-written message of its own."""
         from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="Available: 'rdkit', 'oechem'"):

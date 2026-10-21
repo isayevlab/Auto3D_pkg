@@ -62,7 +62,7 @@ def three_conformers_sdf(tmp_path) -> os.PathLike[str]:
 
 
 def test_species_id_requires_two_trailing_integer_groups():
-    """N-m4: a name with fewer than two trailing integer groups is not touched.
+    """A name with fewer than two trailing integer groups is not touched.
 
     Every producer appends exactly ``_<isomer>_<conformer>``, so stripping on
     a bare ``rsplit(..., 2)`` used to shorten ANY name with two or more
@@ -535,7 +535,7 @@ def test_a_garbled_or_non_finite_electronic_energy_is_refused_at_read_time(
 
 
 def test_k_and_window_default_to_none_and_false_still_means_unset(tmp_path, three_conformers_sdf):
-    """P-m5: ``k``/``window`` default to ``None``; ``False`` is still accepted.
+    """``k``/``window`` default to ``None``; ``False`` is still accepted.
 
     ``False`` is a valid ``int``, so typing the parameters as ``int | bool``
     advertised a type the constructor never actually wants there -- a caller

@@ -212,7 +212,7 @@ class TestNoneMolHardening:
 
         out = decode_ids(str(sdf), {"mol_a": 0})
         # Only the valid record is written; no AttributeError on the None.
-        # N-m31: count_sdf is gone; iter_conformer_records is the
+        # count_sdf is gone; iter_conformer_records is the
         # production-equivalent reader (the same monkeypatched
         # SDMolSupplier backs this call too, like count_sdf's did).
         written = len(list(iter_conformer_records(out)))

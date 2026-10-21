@@ -158,7 +158,7 @@ class TestParallelEmbeddingIsReachable:
         away -- it still runs below ``parallel_embedding_threshold`` and for
         ``--no-parallel-embedding`` -- but a default of 4 workers behind an
         off-by-default switch meant the ordinary run embedded one species at a
-        time however many cores the box had (P-C3, D1). ``parallel_workers``
+        time however many cores the box had. ``parallel_workers``
         is ``None`` rather than a number because the useful count depends on
         the machine and on how many species this run actually has, neither of
         which a class default can know.

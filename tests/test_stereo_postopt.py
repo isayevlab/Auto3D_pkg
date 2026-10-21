@@ -124,7 +124,7 @@ class TestDescriptorReading:
         legacy stereo perception; chiral tags it sets under both. A descriptor
         read from ``_CIPCode`` therefore returns an empty tetrahedral half --
         and reports every inversion as "preserved" -- as soon as anything in
-        the process turns legacy perception off (finding N-M9).
+        the process turns legacy perception off.
         """
         mol = _embedded("C[C@H](O)CC")
         before = stereo_descriptors_from_3d(mol)
@@ -150,7 +150,7 @@ class TestDescriptorReading:
         ``test_aromatic_phosphorus_is_not_flagged_after_relaxation``. RDKit perceives no stereochemistry there at all -- no
         ``_CIPCode`` and no chiral tag, under either perception mode -- so
         without the hand-assigned tag both readings are empty and the
-        inversion is reported as preserved (finding N-M10).
+        inversion is reported as preserved.
         """
         mol = _embedded("CC[P@@](C)CCC")
         before = stereo_descriptors_from_3d(mol)
@@ -258,7 +258,7 @@ class TestClashReliefDoesNotRejectPlanarPnictogens:
     """
 
     def test_aromatic_phosphorus_survives_clash_relief(self, monkeypatch):
-        """I4: the forced clash must be a NON-bonded pair, or N-m1's bonded-pair
+        """The forced clash must be a NON-bonded pair, or the bonded-pair
         exclusion short-circuits before MMFF ever runs, and this test stops
         exercising the aromaticity hazard it is named for.
 
@@ -303,7 +303,7 @@ class TestClashReliefDoesNotRejectPlanarPnictogens:
 
 
 def test_h2_survives_clash_relief():
-    """N-m1: a bonded pair shorter than ``MIN_ATOM_DISTANCE`` is not a clash.
+    """A bonded pair shorter than ``MIN_ATOM_DISTANCE`` is not a clash.
 
     H2 (and its isotopologues HD/D2) is essentially the only ordinary
     covalent bond whose equilibrium length (0.741 A) sits below the 0.9 A
@@ -313,8 +313,8 @@ def test_h2_survives_clash_relief():
     is a separate question. For a BONDED pair specifically, the
     connectivity check (``domain.connectivity.check_connectivity``)
     downstream tests only whether it is too LONG (broken) -- its too-short
-    test applies to non-bonded pairs only (NEW-1) -- so the only check a
-    too-short bond meets at all is ``MIN_BONDED_FRACTION`` here (C1/R51):
+    test applies to non-bonded pairs only -- so the only check a
+    too-short bond meets at all is ``MIN_BONDED_FRACTION`` here:
     H2's 0.741 A clears even that (0.6 x H-H's 0.708 A reference length is
     0.425 A).
     """
@@ -336,13 +336,13 @@ def test_h2_survives_clash_relief():
 
 
 def test_a_crushed_bonded_pair_still_triggers_relief(monkeypatch):
-    """C1: excluding bonded pairs from the 0.9 A non-bonded test must not
+    """Excluding bonded pairs from the 0.9 A non-bonded test must not
     open a hole for a bonded pair at a physically impossible distance.
 
     A 0.35 A C-H distance -- far below any real bond, and far below even
-    H2's 0.741 A -- used to be caught by the unconditional pre-N-m1 clash
-    test (min pairwise distance, bonded or not, < 0.9 A). After N-m1
-    excluded bonded pairs outright, this geometry passed through untouched
+    H2's 0.741 A -- used to be caught by the earlier unconditional clash
+    test (min pairwise distance, bonded or not, < 0.9 A). Once bonded
+    pairs were excluded outright, this geometry passed through untouched
     and unrelaxed. ``MIN_BONDED_FRACTION`` restores the floor for bonded
     pairs specifically, scaled to each bond's own UFF reference length so
     ordinary short bonds (H2 included) are still exempt.

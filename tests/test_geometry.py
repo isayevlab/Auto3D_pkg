@@ -62,7 +62,7 @@ class TestMinPairwiseDistance:
 
 
 class TestMinPairwiseDistanceExclude:
-    """N-m1: ``exclude`` masks index pairs out of the minimum directly,
+    """``exclude`` masks index pairs out of the minimum directly,
     independent of the ``clash_relief`` caller that builds the pairs."""
 
     def test_excluding_the_closest_pair_falls_through_to_the_next_smallest(self):
@@ -97,7 +97,7 @@ class TestMinPairwiseDistanceExclude:
 
 
 class TestMinDistanceAmong:
-    """N-m1/C1: the complement of ``exclude`` -- the minimum over only the
+    """The complement of ``exclude`` -- the minimum over only the
     named pairs, used by ``clash_relief`` to test bonded pairs specifically."""
 
     def test_minimum_among_the_named_pairs_only(self):

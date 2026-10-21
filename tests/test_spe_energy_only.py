@@ -252,7 +252,7 @@ class TestEnergyBatchedStillGuardsTheNumbers:
 
 
 class TestEnergyBatchedKeepsTheOomBehavior:
-    """The shrink-and-stay-shrunk retry (audit M37) is shared, not duplicated."""
+    """The shrink-and-stay-shrunk retry is shared, not duplicated."""
 
     def test_an_oom_halves_the_batch_and_the_run_completes(self):
         class _OomOnceAdapter(AdapterModuleMixin, nn.Module):
@@ -372,7 +372,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         assert sum(calls) == 0
 
     def test_aimnet2_energy_is_deliberately_the_forward_route(self):
-        """AIMNet2Adapter defines no ``energy`` override (P-M5); its own
+        """AIMNet2Adapter defines no ``energy`` override; its own
         ``_energy_graph`` (the hooks are one-directional, so the base class's
         ``_energy_graph`` never falls back to ``forward`` for it) is what
         routes ``BaseModelAdapter.energy`` -> ``_energy_graph`` ->

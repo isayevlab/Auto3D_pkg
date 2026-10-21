@@ -108,7 +108,7 @@ class TestColdCacheDiagnosis:
         ``AIMNET_CACHE_DIR`` is pointed at an empty directory: ``preflight_model``
         now checks a warm cache locally, by file hash, before ever reaching
         the patched ``get_registry_model_path``; the cache must be cold (no
-        file present) for that patched call to be reached at all (P-M8).
+        file present) for that patched call to be reached at all.
         """
         import aimnet.calculators.model_registry as model_registry
 
@@ -197,7 +197,7 @@ class TestColdCacheDiagnosis:
         reason as in ``test_network_failure_names_the_network``: the cache
         must be cold so the local, pre-``aimnet`` warm-cache check does not
         return early and the patched ``get_registry_model_path`` is actually
-        reached (P-M8).
+        reached.
         """
         import aimnet.calculators.model_registry as model_registry
 

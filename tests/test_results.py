@@ -41,7 +41,7 @@ def test_workflow_result_counts(tmp_path):
 
 
 def test_eager_counts_survive_the_file_being_moved(tmp_path):
-    """P-m26: when the caller already knows the counts (the orchestrator
+    """When the caller already knows the counts (the orchestrator
     computes them from the record list `reorder_sdf` returns), they must not
     be recomputed lazily from the output path -- which zeros them out the
     moment that path is moved or deleted, as `count_output`'s own "missing

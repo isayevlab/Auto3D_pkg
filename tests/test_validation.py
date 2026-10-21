@@ -248,7 +248,7 @@ class TestCheckValidConfigurationGpuIndex:
     workflow can fail fast instead of crashing inside a spawned worker."""
 
     def test_out_of_range_index_raises_gpu_error(self, tmp_path):
-        """P-m33 (R20): an out-of-range gpu_idx is now fatal here too, raised
+        """An out-of-range gpu_idx is now fatal here too, raised
         immediately as GPUError (the exit-4 contract), not folded into the
         returned error list and wrapped as a ConfigurationError (exit 2).
 
@@ -384,7 +384,7 @@ class TestGpuPolicyIsUniform:
 
 
 class TestDummyAtomRecordsAreAnnouncedUpFront:
-    """N-M3: the input check names the dummy-atom records before the run starts.
+    """The input check names the dummy-atom records before the run starts.
 
     Every record seam downstream skips them with its own warning, but those
     warnings arrive scattered through a long run. One line per input check,

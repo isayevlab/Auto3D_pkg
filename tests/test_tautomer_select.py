@@ -145,7 +145,7 @@ def test_select_tautomers_same_species_case_is_unchanged(tmp_path):
 
 
 def test_select_tautomers_skips_implicit_hydrogen_records(tmp_path, caplog):
-    """An implicit-H record is a heavy-atom skeleton (N-C1): ranking it
+    """An implicit-H record is a heavy-atom skeleton: ranking it
     against an explicit-H tautomer by electronic energy would compare two
     different species, so it must not reach the output at all. Routed through
     `iter_conformer_records`, the same filter `calc_spe`/`opt_geometry` apply.

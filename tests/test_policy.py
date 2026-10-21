@@ -71,7 +71,7 @@ class TestRequiresAimnetCountsRadicalElectrons:
 
 
 class TestRequiresAimnetIsPublic:
-    """P-m31: `requires_aimnet` is a public name in the engine policy module,
+    """`requires_aimnet` is a public name in the engine policy module,
     not an underscore-prefixed one -- it is a model precondition other
     modules (orchestration's input checks) have to ask about, not an
     implementation detail private to this one."""
@@ -179,7 +179,7 @@ class TestZwitterionWarning:
 
 
 class TestHasDummyAtoms:
-    """N-M3: an R-group placeholder (``*``, ``[3*]``) is not a species.
+    """An R-group placeholder (``*``, ``[3*]``) is not a species.
 
     AIMNet2 uses embedding index 0 as its padding slot, so a dummy atom is
     scored as a zero-feature ghost rather than rejected; ANI refuses it as

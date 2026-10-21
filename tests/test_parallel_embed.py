@@ -147,7 +147,7 @@ class TestEmbedSingle:
             assert positions.shape[0] > 0
 
     def test_a_dummy_atom_species_is_refused_with_a_reason(self):
-        """N-M3: an R-group placeholder must be named, not quietly dropped.
+        """An R-group placeholder must be named, not quietly dropped.
 
         Without the skip, `*CCO` embeds and is handed to AIMNet2, which scores
         the dummy atom with its padding embedding (index 0) -- a number for a
@@ -216,12 +216,12 @@ def test_embed_with_retry_does_not_retry_after_a_timed_out_attempt(monkeypatch):
     """A species that ran out of time must not be given the whole cap again.
 
     The retry exists for strained systems whose default initial coordinates fail
-    *fast* and whose random ones succeed (N-m2). An attempt that produced nothing
+    *fast* and whose random ones succeed. An attempt that produced nothing
     because it burned its entire budget is a different condition: random initial
     coordinates would get no more time than the first attempt had, so a second
     attempt only doubles the wall clock. Unconditional, the per-species worst
     case was 2 x EMBED_TIMEOUT_S = 120 s -- more than the ~67 s the serial path
-    spent on the species P-C3 was written to bound, and paid in full by the
+    spent on the species this cap was written to bound, and paid in full by the
     serial path and by the SDF isomer engine, which has no parallel path at all.
     """
     import Auto3D.domain.embedding as emb
@@ -252,7 +252,7 @@ def test_embed_with_retry_does_not_retry_after_a_timed_out_attempt(monkeypatch):
 def test_the_retry_gets_only_the_budget_the_first_attempt_left(monkeypatch):
     """Both attempts together are bounded by one cap, not one each.
 
-    Skipping the retry outright would forgo N-m2's recovery for any species that
+    Skipping the retry outright would forgo its recovery for any species that
     fails slowly but not fatally. Giving the second attempt the remainder keeps
     the recovery and keeps the documented per-species bound honest (to within the
     one second the ceiling rounding can add).
@@ -322,7 +322,7 @@ def test_the_retry_gets_only_the_budget_the_first_attempt_left(monkeypatch):
 def test_resolve_embedding_workers(monkeypatch, cpus, n_species, requested, threads, expected):
     """``None`` means "scale to this machine"; an explicit count is obeyed.
 
-    A fixed default of 4 left 124 of 128 cores idle (P-C3), so the resolution
+    A fixed default of 4 left 124 of 128 cores idle, so the resolution
     has to happen where both the machine and the batch size are known rather
     than in a constructor default. "The machine" means cores *per worker*: each
     worker hands ``threads_per_worker`` to ``EmbedMultipleConfs``, so handing
@@ -371,7 +371,7 @@ def test_resolve_embedding_workers_survives_a_zero_thread_count(monkeypatch):
 
 
 def test_the_embedding_pool_arms_the_parent_death_initializer(monkeypatch):
-    """Every process Auto3D starts has to die with its parent (P-C2).
+    """Every process Auto3D starts has to die with its parent.
 
     The isomer worker, the optimizers, the logger process and the Manager
     servers all pass ``_exit_when_parent_dies``; this pool did not, and this
@@ -447,7 +447,7 @@ def test_the_pool_initializer_arms_both_parent_death_and_double_coordinates(monk
 
 
 def test_closing_the_generator_early_cancels_or_drains_its_futures(monkeypatch):
-    """P-m3: a caller that stops consuming must not leave orphaned futures.
+    """A caller that stops consuming must not leave orphaned futures.
 
     ``embed_conformers_parallel`` is a generator; a caller that ``break``s or
     is itself closed (e.g. ``itertools.islice``, an early ``return``) before

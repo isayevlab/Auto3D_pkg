@@ -1,4 +1,4 @@
-"""The adapter forward tail exists once (P-M5): a backend supplies its energy graph and,
+"""The adapter forward tail exists once: a backend supplies its energy graph and,
 if it computes in float32, its input cast; the base does grad, sign, validation and the
 dtype bookkeeping that issue #5 fixed three times over."""
 

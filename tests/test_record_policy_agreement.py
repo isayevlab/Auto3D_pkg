@@ -59,7 +59,7 @@ def test_the_sdf_isomer_engine_re_embeds_implicit_h_and_skips_only_the_dummy(tmp
     ``RDKitSdfIsomer`` calls ``Chem.AddHs`` and re-embeds every record it keeps,
     so a heavy-atom skeleton is legitimate input rather than a defect -- the
     deliberate divergence from the single-file entry points above. Only the
-    dummy-atom record is refused (N-M3: adding hydrogens cannot turn an R-group
+    dummy-atom record is refused (adding hydrogens cannot turn an R-group
     placeholder into a species), and the unparseable one is reported once.
     """
     import logging

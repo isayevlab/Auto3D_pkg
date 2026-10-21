@@ -545,7 +545,7 @@ class TestEnForceANIRejectsNonAdapters:
 
 
 def test_oom_shrunk_bsize_persists_across_calls():
-    """P-M3: the halved sub-batch size must be remembered for the next step,
+    """The halved sub-batch size must be remembered for the next step,
     not recomputed from batchsize_atoms on every forward_batched call."""
     from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
@@ -573,13 +573,13 @@ def test_oom_shrunk_bsize_persists_across_calls():
 
 
 def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
-    """T-3: the shrunk size comes from `bsize`, not from the tail's length.
+    """The shrunk size comes from `bsize`, not from the tail's length.
 
     The last slice of a batch is short because the molecules ran out, not
     because memory did, so halving *it* published a size for
     ``_bsize_by_n[N]`` that no other part of the batch had shown to be
     necessary -- and ``_bsize_by_n`` is read again by every later optimizer
-    step (P-M3). Here 6 molecules at ``bsize`` 4 leave a tail of 2 that OOMs
+    step. Here 6 molecules at ``bsize`` 4 leave a tail of 2 that OOMs
     once; the sub-batch size for the rest of the run must be 2 (4 // 2), not
     1 (2 // 2).
     """
@@ -619,7 +619,7 @@ def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
 
 
 def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves():
-    """T-3: the halved size is capped at the size that just failed.
+    """The halved size is capped at the size that just failed.
 
     ``bsize`` starts from ``batchsize_atoms // N`` and routinely exceeds the
     number of molecules still active -- conformers converge and leave the batch

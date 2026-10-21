@@ -317,10 +317,10 @@ class TestLoadHessianModelReturnsOneType:
     def test_the_ani_branch_still_upcasts_but_into_its_own_cache_entry(self, monkeypatch):
         """fp64 for the autograd Hessian, via the factory's own double= cache key.
 
-        double=True is part of ModelFactory's cache key (P-m16), so this never
+        double=True is part of ModelFactory's cache key, so this never
         shares a cache entry with the fp32 adapter the optimization half of the
         same calc_thermo call uses -- upcasting THAT entry in place would
-        silently move that run to two precisions (B1 risk 6).
+        silently move that run to two precisions.
         """
         calls = self._fake_factory(monkeypatch)
 

@@ -402,7 +402,7 @@ class TestHessianShapeAndMasses:
 
 
 #: A bent stationary point: three vibrations and six external noise modes. At
-#: 170 degrees it sits inside the linearity window, which is the N-M4 case.
+#: 170 degrees it sits inside the linearity window.
 BENT_CO2 = ([667, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1, 0.05], "nonlinear")
 #: A linear molecule: the degenerate bend pair, two stretches, five external noise modes.
 LINEAR_CO2 = ([667, 667, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1], "linear")
@@ -413,7 +413,7 @@ def _warnings(caplog):
 
 
 class TestABentStationaryPointInsideTheWindowIsReclassified:
-    """N-M4: the linearity window cannot tell a thermally bent linear molecule
+    """The linearity window cannot tell a thermally bent linear molecule
     from a bent minimum, but the Hessian can. A bent minimum annihilates the
     rotation about its near-axis; a linear molecule's Hessian puts the bend's
     curvature there. ``project_vibrations`` asks, and the mode count follows

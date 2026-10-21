@@ -92,7 +92,7 @@ def tiny_batch():
 
 
 def test_ensemble_opt_returns_exactly_the_keys_its_callers_read(tiny_batch):
-    """P-m11: ``ensemble_opt`` must return only the keys its callers read.
+    """``ensemble_opt`` must return only the keys its callers read.
 
     ``ids``, ``he``, ``close`` and ``timing`` were constructed and returned
     but never read by any caller -- ``Optimizer._optimize_bucket`` reads
@@ -173,8 +173,7 @@ class TestConvergenceFlagDerivation:
     """The Converged/Dropped_Oscillating flags must come from production code.
 
     The previous tests in this class re-implemented the derivation inside the
-    test body and asserted it against itself, so no production code executed
-    (audit M32).
+    test body and asserted it against itself, so no production code executed.
     """
 
     def test_oscillating_structure_is_not_reported_converged(self, job_dir):

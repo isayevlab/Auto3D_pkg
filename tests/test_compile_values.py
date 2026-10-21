@@ -220,7 +220,7 @@ def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monke
 
 
 class TestCustomNnpProbeSeam:
-    """The custom-NNP branch of the factory runs the same probe (C-5).
+    """The custom-NNP branch of the factory runs the same probe.
 
     Torchani-free on purpose: the two ANI2xt tests above skip on the
     ``ani=false`` CI legs, and the probe seam -- the code path that decides

@@ -3,7 +3,7 @@
 
 This module tests stereochemistry-related utility functions including
 enantiomer detection, stereo info extraction, and configuration amendment --
-split, since P-m29, across the two modules the functions themselves now live
+split across the two modules the functions themselves now live
 in (see ``test_the_two_halves_import_from_their_own_modules`` below).
 """
 
@@ -31,7 +31,7 @@ from Auto3D.foundation.exceptions import InputValidationError
 
 
 def test_the_two_halves_import_from_their_own_modules():
-    """P-m29: the SMILES-surgery half is its own module, ``stereochemistry_smiles``.
+    """The SMILES-surgery half is its own module, ``stereochemistry_smiles``.
 
     Neither module re-exports the other's names: ``Auto3D.domain.stereochemistry``
     is not documented public API (not in ``docs/source/api.rst``), so the split

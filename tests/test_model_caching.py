@@ -147,7 +147,7 @@ class TestModelCaching:
         assert ModelFactory.get_cache_info()["size"] == 2
 
     def test_custom_nnp_path_is_cached_and_invalidates_on_a_rewrite(self, tmp_path):
-        """P-m17: a custom-NNP path is cached by (resolved path, stamp, ...),
+        """A custom-NNP path is cached by (resolved path, stamp, ...),
         so repeated calls reuse the instance -- and a rewrite of the file on
         disk, which changes its stamp, must not hand back the stale one."""
         path = tmp_path / "tiny.pt"
@@ -205,7 +205,7 @@ class TestModelCaching:
         assert ModelFactory.get_cache_info()["size"] == 1
 
     def test_a_double_request_does_not_touch_the_cached_fp32_instance(self):
-        """P-m16: the cache key carries dtype, so a double=True request never
+        """The cache key carries dtype, so a double=True request never
         returns (and never upcasts in place) the cached fp32 instance."""
         pytest.importorskip("torchani")
         cpu = torch.device("cpu")

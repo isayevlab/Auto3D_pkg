@@ -202,7 +202,7 @@ class TestANI2xtAdapter:
 
     def test_ani2xt_adapter_force_sign_with_toy_model(self):
         """``forces = -grad`` is one shared tail in ``BaseModelAdapter.forward``,
-        reached through each backend's own ``_energy_graph`` (audit M32); this
+        reached through each backend's own ``_energy_graph``; this
         test exercises it through ``ANI2xtAdapter._energy_graph`` specifically,
         and is kept as a per-backend smoke test alongside
         ``test_custom_model_adapter_runs``'s and
@@ -259,7 +259,7 @@ class TestANI2xAdapter:
 
     def test_ani2x_adapter_force_sign_with_toy_model(self):
         """``forces = -grad`` is one shared tail in ``BaseModelAdapter.forward``,
-        reached through each backend's own ``_energy_graph`` (audit M32); this
+        reached through each backend's own ``_energy_graph``; this
         test exercises it through ``ANI2xAdapter._energy_graph`` specifically,
         kept as a per-backend smoke test alongside
         ``test_ani2xt_adapter_force_sign_with_toy_model``'s and
@@ -549,7 +549,7 @@ def test_custom_model_adapter_runs(tmp_path):
     # _Toy does not mask padding, so E = sum(coords^2) over every slot =>
     # dE/dx = 2*coords => F = -dE/dx = -2*coords. Asserting the value, not
     # just finiteness, is what catches a sign flip in the adapter's force
-    # path (audit M32).
+    # path.
     expected_forces = -2.0 * coords
     torch.testing.assert_close(f, expected_forces, rtol=1e-5, atol=1e-6)
     expected_energy = (coords**2).sum(dim=(1, 2))
@@ -608,7 +608,7 @@ class TestValidateOutputs:
 
 
 class TestAni2xtNetworksAreTableDriven:
-    """The seven per-element MLPs are one factory + a width table (audit M61).
+    """The seven per-element MLPs are one factory + a width table.
 
     They used to be seven copy-pasted ``nn.Sequential`` blocks, 69 lines
     differing only in three integers, which is how ``F_network`` and
@@ -967,7 +967,7 @@ class TestWarnIfCompileFellBackToEager:
 
         A standing fallback the caller has already been told about must not
         produce one warning per optimizer step. This is the half of the old
-        one-shot gate that survives T-2 -- the half that dropped is the claim
+        one-shot gate that survives -- the half that dropped is the claim
         that no LATER fallback can happen (see the test below).
         """
         adapter = self._adapter(compiled=True, frame_stats_before={"total": 0, "ok": 0})
@@ -983,7 +983,7 @@ class TestWarnIfCompileFellBackToEager:
     def test_a_fallback_that_first_appears_on_a_later_forward_still_warns(
         self, monkeypatch, caplog
     ):
-        """T-2: the fallback is not decided once, so neither is the warning.
+        """The fallback is not decided once, so neither is the warning.
 
         ``compile_model=True`` on ANI2xt 0/1-specializes seven per-element index
         tensors, so a new element-presence pattern is a fresh recompile; once

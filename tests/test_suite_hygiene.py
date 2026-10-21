@@ -122,14 +122,14 @@ def test_the_shared_test_doubles_are_not_shadowed():
 
 
 def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker(request):
-    """P-m49: the hang guards in test_workflow.py use @pytest.mark.timeout, which
+    """The hang guards in test_workflow.py use @pytest.mark.timeout, which
     is a no-op unless pytest-timeout is installed and the marker is declared.
 
     The declaration is read off ``pyproject.toml`` anchored on ``TESTS_DIR.parent``
     rather than on the process's working directory, which is whatever the caller
     happened to invoke pytest from; and the plugin is checked through the
     running session's own plugin manager, so this proves the marker is ACTIVE
-    here rather than merely listed as a dev extra somewhere (C-8).
+    here rather than merely listed as a dev extra somewhere.
     """
     import tomllib
 
@@ -147,7 +147,7 @@ def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker(request):
 
 
 def test_fire_optimizer_cites_bitzek_not_guenole():
-    """N-m7: FIRE's docstrings cited the wrong paper and the wrong integrator.
+    """FIRE's docstrings cited the wrong paper and the wrong integrator.
 
     ``fire_optimizer.py`` cited Guenole et al. 2020 and described the step as
     "velocity Verlet", but the implementation is the original FIRE paper's
@@ -172,7 +172,7 @@ def ruff_ignore_list() -> list[str]:
 
 
 def test_no_e402_blanket_ignore():
-    """P-m46: E402 was globally ignored instead of fixed at each site.
+    """E402 was globally ignored instead of fixed at each site.
 
     Every genuine case left after moving the root-cause statements below their
     files' import blocks now carries its own ``# noqa: E402`` with a one-line

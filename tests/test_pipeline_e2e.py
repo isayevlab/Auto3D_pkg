@@ -200,7 +200,7 @@ class TestExitStatus:
 
 
 class TestDummyAtomInput:
-    """N-M3: an R-group placeholder must leave the run as a reported failure.
+    """An R-group placeholder must leave the run as a reported failure.
 
     The seam-by-seam skips are unit-tested (``test_utils_sdf_io``,
     ``test_parallel_embed``, ``test_validation``), but what matters to a user

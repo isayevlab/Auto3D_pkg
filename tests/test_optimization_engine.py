@@ -266,7 +266,7 @@ class TestNSteps:
         """A model whose first-step force norm (fmax) is ~1000 -- above the old
         999.0 sentinel ``smallest_fmax0`` seeded, so ``fmax_col < smallest_fmax``
         was False on step one and the oscillation counter incremented instead
-        of staying at zero (N-m8)."""
+        of staying at zero."""
         mock_nn = MagicMock()
         forces = torch.zeros(2, 5, 3)
         forces[..., 0] = 1000.0  # norm per atom == 1000.0 exactly
@@ -288,7 +288,7 @@ class TestNSteps:
     def test_oscillating_count_resets_on_an_extreme_first_step(
         self, mock_nn_with_fmax_about_1000, state
     ):
-        """N-m8: the running force minimum must start at +inf, not 999.0.
+        """The running force minimum must start at +inf, not 999.0.
 
         A first step whose fmax happens to exceed the old hardcoded 999.0
         sentinel was never "an improvement" under ``fmax_col < smallest_fmax``,
@@ -479,9 +479,9 @@ def test_n_steps_rejects_an_unknown_fire_constant_set():
 
 
 def test_convergence_outcome_never_depends_on_energy_stability():
-    """Energy stability alone can never converge a structure (audit M1).
+    """Energy stability alone can never converge a structure.
 
-    Algebraic proof, for the code as it stood before M1:
+    Algebraic proof, for the code as it stood before the term was deleted:
 
         not_converged_post1 = fmax > opttol
         energy_converged    = (energy_stable_subset >= energy_patience) & (fmax < opttol)

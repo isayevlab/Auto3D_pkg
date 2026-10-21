@@ -52,7 +52,7 @@ def _two_record_input(tmp_path, monkeypatch):
 
 
 def test_opt_geometry_rejects_patience_zero(monkeypatch, tmp_path):
-    """N-m21: `patience` has no lower bound on the `OptimizationConfig` path
+    """`patience` has no lower bound on the `OptimizationConfig` path
     today, so `patience=0` silently drops every converged structure as
     oscillating on its very first step instead of being refused up front."""
     from Auto3D.entry.ASE.geometry import opt_geometry
@@ -98,7 +98,7 @@ def test_opt_geometry_warns_when_patience_equals_opt_steps(monkeypatch, tmp_path
 @pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom
-    skeleton (N-C1). `Optimizer.run()` (Auto3D.engines.batch_opt.batchopt)
+    skeleton. `Optimizer.run()` (Auto3D.engines.batch_opt.batchopt)
     reads its input through `iter_conformer_records` directly -- the same
     filter `calc_spe`/`opt_geometry`/`select_tautomers` apply to their own
     reads of `path` -- so the implicit-H record is skipped at the one place
