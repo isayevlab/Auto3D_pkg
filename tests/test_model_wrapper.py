@@ -374,7 +374,7 @@ def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():
 
 
 def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
-    """M37: empty_cache()/the retry must run AFTER the except block has been
+    """empty_cache()/the retry must run AFTER the except block has been
     left, not while the OOM exception (and everything its traceback keeps
     alive, including the failed forward's activations) is still the
     currently-handled exception -- otherwise empty_cache() can only release
@@ -426,7 +426,7 @@ def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
 
 
 def test_bsize_shrinkage_persists_for_remainder_of_batch():
-    """M37: once a slice OOMs and is halved, LATER slices in the same
+    """Once a slice OOMs and is halved, LATER slices in the same
     forward_batched call must reuse the shrunk size, not repeat the same
     OOM-and-recurse cycle at the original (pre-OOM) size for every remaining
     slice."""

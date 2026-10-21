@@ -48,7 +48,7 @@ class TestCheckInputExceptions:
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(DependencyError, match="OE_LICENSE") as exc_info:
                 check_input(args)
-        # M26: dependency_name must be set so cli/errors.get_error_hint can
+        # dependency_name must be set so cli/errors.get_error_hint can
         # show the openeye install hint instead of falling back to "unknown".
         assert exc_info.value.dependency_name == "openeye"
 
@@ -287,10 +287,10 @@ class TestCheckValidConfigurationGpuIndex:
 
 
 class TestGpuPolicyIsUniform:
-    """M23: a CPU-only box must get the same fatal GPUError, with the same
+    """A CPU-only box must get the same fatal GPUError, with the same
     '--no-gpu' hint, no matter which entry point is used. This box has 8 CUDA
-    devices (see task-7 brief), so the no-CUDA case is simulated throughout by
-    patching torch.cuda.is_available in Auto3D.engines.models.policy, where
+    devices, so the no-CUDA case is simulated throughout by patching
+    torch.cuda.is_available in Auto3D.engines.models.policy, where
     check_gpu_requested (the single source of truth for this check) reads it.
     """
 

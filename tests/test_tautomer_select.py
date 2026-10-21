@@ -7,7 +7,7 @@ default fast suite.
 
 
 def test_select_tautomers_groups_by_id_with_whitespace_after_the_taut_suffix(tmp_path):
-    """Fix round 2: `strip_taut_suffix`'s regex is end-anchored (Chem-M5), so
+    """`strip_taut_suffix`'s regex is end-anchored, so
     `strip_taut_suffix(title).strip()` -- strip AFTER the regex -- leaves a
     trailing-whitespace title's "@tautN" suffix unstripped (the regex never
     matches when something follows the suffix). Strip whitespace FIRST (the
@@ -264,7 +264,7 @@ def test_select_tautomers_rejects_nonpositive_k(tmp_path):
 
 
 def test_select_tautomers_rejects_k_and_window_together(tmp_path):
-    """M29: this used to be a bare ValueError, not an Auto3DError -- so the
+    """This used to be a bare ValueError, not an Auto3DError -- so the
     CLI's differentiated exit code/hint never applied to a direct Python API
     call, only to the CLI's own pre-check in execute_tautomers."""
     import pytest

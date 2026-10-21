@@ -49,7 +49,7 @@ class TestEncodeDecodeIds:
         assert "CCC 2" in content
 
     def test_encode_accepts_an_uppercase_extension(self, tmp_path):
-        """M7: a chemically valid ``mols.SMI`` must not be refused the way
+        """A chemically valid ``mols.SMI`` must not be refused the way
         an unsupported extension is; the check is case-insensitive."""
         input_file = tmp_path / "input.SMI"
         input_file.write_text("CCO mol_alpha\n")

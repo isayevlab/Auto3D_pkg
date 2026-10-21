@@ -149,7 +149,7 @@ def test_config_rejects_garbage_engine():
 
 
 def test_config_rejects_registry_name_typo():
-    """M21: 'aimnet2-2025x' shares the 'aimnet2' prefix with a real registry
+    """'aimnet2-2025x' shares the 'aimnet2' prefix with a real registry
     name, so the old prefix-match validator (`v.lower().startswith("aimnet2")`)
     accepted it. Verified live before this fix:
     build_cli_config(path=Path("x.smi"), optimizing_engine="aimnet2-2025x") did not

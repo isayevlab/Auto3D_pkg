@@ -1256,7 +1256,7 @@ class _StubOeMol:
 
 
 class TestOmegaConformerNaming:
-    """I1 (R48): Omega must honor the two-component ``<id>_<isomer>_<conformer>``
+    """Omega must honor the two-component ``<id>_<isomer>_<conformer>``
     name contract every other producer does (``domain.ranking.species_id``'s
     documented shape), regardless of whether OpenEye's own warts fire --
     they are armed only in the non-macrocycle, flipper-driven path.
@@ -1320,7 +1320,7 @@ class TestOmegaConformerNaming:
     def test_flipper_mode_appends_an_isomer_index_only_when_one_is_missing(
         self, tmp_path, monkeypatch
     ):
-        """NEW-2: the flipper branch's premise -- that
+        """The flipper branch's premise -- that
         ``OEFlipperOptions.SetWarts`` (reinforced by ``remove_enantiomers``'s
         own re-indexing) always leaves a title ending in ``_<digits>`` -- is
         never re-verified. A title that reaches the main loop without one

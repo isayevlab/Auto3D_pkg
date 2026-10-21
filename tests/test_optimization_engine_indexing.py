@@ -949,11 +949,11 @@ class TestHotLoopDoesNotSync:
 
         - ``print_stats``'s one call to ``optimization_counts`` now reads
           THREE scalars, not two: ``converged_mask``'s sum,
-          ``oscillating_count``'s threshold sum, and (R70) ``non_finite``'s
+          ``oscillating_count``'s threshold sum, and ``non_finite``'s
           sum, so a row retired as non-finite is never double-reported as
           still "active".
         - ``_recompute_final_energy_and_fmax`` now does ONE extra
-          ``torch.nonzero`` (R67) to select only the finite rows before its
+          ``torch.nonzero`` to select only the finite rows before its
           one ``forward_batched`` call, so a row already flagged
           ``non_finite`` is not re-bisected and re-placeholdered for no new
           information.

@@ -1392,7 +1392,7 @@ def test_orchestrator_input_format_single_source_of_truth(tmp_path):
 
 
 def test_validate_input_accepts_an_uppercase_extension(tmp_path):
-    """M7: the extension check is case-insensitive; a chemically valid
+    """The extension check is case-insensitive; a chemically valid
     ``mols.SMI`` must not be refused the way ``mols.xyz`` is."""
     from Auto3D.foundation.config import Auto3DOptions
     from Auto3D.orchestration.workflow import WorkflowOrchestrator

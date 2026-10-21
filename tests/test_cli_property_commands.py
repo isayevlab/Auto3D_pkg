@@ -112,7 +112,7 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
     res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu"])
     assert res.exit_code == 3  # DependencyError -> exit 3
     assert "Traceback" not in res.output
-    # M26: DependencyError used to carry no dependency_name, so this hint was
+    # DependencyError used to carry no dependency_name, so this hint was
     # unreachable and every dependency failure showed "Install the missing
     # dependency: unknown" -- pin the actual install hint the user sees, not
     # just the exit code (which would still pass on that regression).

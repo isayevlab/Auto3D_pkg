@@ -255,7 +255,7 @@ class TestStripTautSuffix:
         assert strip_taut_suffix("id@taut3_1_7") == "id"
 
     def test_strip_taut_suffix_leaves_a_non_isomer_conformer_tail_intact(self):
-        """Chem-M5: the pattern matches exactly the two producer shapes, not
+        """The pattern matches exactly the two producer shapes, not
         '@taut<digits>' plus arbitrary trailing text -- an id whose own
         text continues past the digit run with anything other than one
         '_<isomer>_<conformer>' pair is left alone."""

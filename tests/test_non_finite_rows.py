@@ -1,5 +1,5 @@
 """A molecule whose energy goes non-finite leaves the optimization as not converged;
-the rest of its bucket finishes (R38). The single-point path keeps raising."""
+the rest of its bucket finishes. The single-point path keeps raising."""
 
 import pytest
 import torch

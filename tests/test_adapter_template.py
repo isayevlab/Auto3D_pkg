@@ -154,6 +154,6 @@ def test_the_three_backends_own_no_forward_or_energy(cls):
 def test_aimnet2_keeps_its_own_forward_and_no_energy_override():
     assert "forward" in AIMNet2Adapter.__dict__
     assert "energy" not in AIMNet2Adapter.__dict__
-    # One-directional hooks (R76): AIMNet2Adapter supplies its own
+    # One-directional hooks: AIMNet2Adapter supplies its own
     # _energy_graph rather than relying on a base-class fallback.
     assert "_energy_graph" in AIMNet2Adapter.__dict__

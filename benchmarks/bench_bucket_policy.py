@@ -99,7 +99,7 @@ def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
     return {"wall_s": wall, "n_buckets": n_buckets, "converged": converged, "energies": energies}
 
 
-COUNT_TOLERANCE = 0.01  # converged counts may differ by this fraction of the conformers (D17)
+COUNT_TOLERANCE = 0.01  # converged counts may differ by this fraction of the conformers
 
 
 def _molecule_minima(energies: dict[str, float | None]) -> dict[str, float]:

@@ -284,7 +284,7 @@ class TestRemoveEnantiomers:
             os.unlink(outpath)
 
     def test_remove_enantiomers_tolerates_blank_lines(self, tmp_path):
-        """M59: switched to iter_smi_records, which skips blank/comment lines.
+        """Switched to iter_smi_records, which skips blank/comment lines.
 
         The old hand-rolled parser did `vals = line.split()` then indexed
         vals[0]/vals[1] unconditionally, so a blank line raised a bare
@@ -349,7 +349,7 @@ class TestAmendConfiguration:
             os.unlink(path)
 
     def test_amend_configuration_tolerates_blank_and_comment_lines(self, tmp_path):
-        """M59: switched to iter_smi_records. The old parser did
+        """Switched to iter_smi_records. The old parser did
         `tuple(line.strip().split())`, which raises "not enough values to
         unpack" on a blank line -- aborting the whole function -- and "too
         many values to unpack" on a line with a third whitespace column.

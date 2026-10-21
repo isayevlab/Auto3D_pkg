@@ -83,7 +83,7 @@ class TestMinPairwiseDistanceExclude:
         assert abs(result - 1.0) < 1e-5
 
     def test_an_out_of_range_index_raises_rather_than_silently_weakening_the_test(self):
-        """M6: a bad ``exclude`` pair must not be silently dropped.
+        """A bad ``exclude`` pair must not be silently dropped.
 
         A pair naming an index beyond the point count is a caller error (a
         pair from a different molecule, or a conformer with a different atom

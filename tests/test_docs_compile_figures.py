@@ -1,4 +1,4 @@
-"""advanced_usage.rst states measured compile figures with the hardware named (D13)."""
+"""advanced_usage.rst states measured compile figures with the hardware named."""
 
 from pathlib import Path
 

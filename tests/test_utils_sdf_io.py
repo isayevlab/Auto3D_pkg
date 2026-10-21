@@ -344,7 +344,7 @@ class TestSDF2chunksTrailingRecord:
         assert "line3" in joined
 
     def test_a_file_with_no_m_end_at_all_warns_about_the_real_cause(self, tmp_path, caplog):
-        """Chem-M8: under the `M  END` gate, a file that contains `$$$$`
+        """Under the `M  END` gate, a file that contains `$$$$`
         lines but no `M  END` anywhere can never have any of them accepted
         as a terminator -- every one is data, not a record boundary -- so
         the whole file falls back to one unsplit chunk (current fallback

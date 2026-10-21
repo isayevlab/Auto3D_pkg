@@ -1,6 +1,6 @@
 # tests/test_cli_errors.py
-"""Tests for M30: an internal (non-Auto3DError) CLI failure must be
-debuggable without editing source.
+"""An internal (non-Auto3DError) CLI failure must be debuggable without
+editing source.
 
 Before this fix, `handle_error` took no verbosity argument and printed only
 `str(error)` at every verbosity -- an unexpected `KeyError('ID')` (e.g. from a
@@ -69,7 +69,7 @@ def test_auto3derror_verbose1_shows_traceback(capsys):
     assert "ConfigurationError" in captured.err
 
 
-# --- M26: DependencyError's hint must be reachable, not just its type -------
+# --- DependencyError's hint must be reachable, not just its type ------------
 #
 # Before this fix, DependencyError defined no `dependency_name` and none of
 # its four raise sites set one, so `get_error_hint`'s

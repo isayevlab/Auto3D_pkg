@@ -371,7 +371,7 @@ class TestGpuFreeMemoryGb:
 
 
 class TestCalculateMemoryNeverTouchesCuda:
-    """M36: the parent process must never initialize a CUDA context just to
+    """The parent process must never initialize a CUDA context just to
     size a chunk. torch.cuda.get_device_properties and torch.cuda.mem_get_info
     are poisoned to fail loudly if called at all, rather than silently
     succeeding against whatever real GPU state this box happens to have.
@@ -382,8 +382,7 @@ class TestCalculateMemoryNeverTouchesCuda:
 
         def _poison(*a, **k):
             raise AssertionError(
-                "calculate_memory_and_chunks must not touch torch.cuda for a "
-                "memory query (audit M36)"
+                "calculate_memory_and_chunks must not touch torch.cuda for a memory query"
             )
 
         monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
@@ -419,7 +418,7 @@ class TestCalculateMemoryNeverTouchesCuda:
         import torch
 
         def _poison(*a, **k):
-            raise AssertionError("must not touch torch.cuda (audit M36)")
+            raise AssertionError("must not touch torch.cuda")
 
         monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
         monkeypatch.setattr(torch.cuda, "mem_get_info", _poison)
@@ -456,7 +455,7 @@ def test_scaled_batchsize_atoms(per_gb, memory_gb, expected):
 
 
 class TestScaledBatchsizeAtomsClamp:
-    """M36: the memory multiplier must not scale batchsize_atoms without
+    """The memory multiplier must not scale batchsize_atoms without
     bound (a bare `batchsize_atoms * memory_gb` reaches 81,920 atoms/call on
     an 80 GB GPU at the documented default)."""
 

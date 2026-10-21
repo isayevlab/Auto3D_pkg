@@ -371,13 +371,13 @@ def test_a_crushed_bonded_pair_still_triggers_relief(monkeypatch):
 
 
 def test_the_bonded_floor_scales_with_the_bonds_own_reference_length(monkeypatch):
-    """NEW-1/R51: a flat 0.5 A bonded floor undercovers heavier bonds.
+    """A flat 0.5 A bonded floor undercovers heavier bonds.
 
     A C-H bond's UFF reference length is 0.757 + 0.354 = 1.111 A, so
     ``MIN_BONDED_FRACTION``'s 0.6x is 0.667 A -- well above the old flat
     0.5 A floor. A 0.60 A C-H distance is below 0.667 A (so it must trigger
     relief under the radius-scaled rule) but above the old flat 0.5 A floor
-    (so it would NOT have triggered relief under R47). The 0.35 A case
+    (so it would NOT have triggered relief under the old rule). The 0.35 A case
     (further below both floors) must still trigger relief too.
     """
     from rdkit.Chem import AllChem

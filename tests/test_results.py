@@ -64,7 +64,7 @@ def test_lazy_counts_are_still_the_fallback_when_eager_counts_are_omitted(tmp_pa
 
 
 def test_lazy_count_strips_whitespace_before_the_taut_suffix(tmp_path):
-    """Fix round 2: Chem-M5's end-anchored `strip_taut_suffix` pattern
+    """The end-anchored `strip_taut_suffix` pattern
     (`@taut\\d+(?:_\\d+_\\d+)?$`) no longer matches when whitespace follows
     the suffix, so `strip_taut_suffix(name).strip()` -- strip AFTER the
     regex -- leaves a trailing-whitespace `_Name` like `"mol@taut2 "`

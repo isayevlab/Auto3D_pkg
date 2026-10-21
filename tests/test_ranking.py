@@ -420,7 +420,7 @@ class TestConformerRankerTopWindow:
 
         Before the seam split, ``top_window``'s loop set ``E_rel(eV)`` only
         inside ``if rel_energy <= window:``. The split accidentally stamped it
-        unconditionally (R36): the molecule that breaks the loop got a stale
+        unconditionally: the molecule that breaks the loop got a stale
         ``E_rel(eV)`` property it never had before. That regression is
         invisible through ``run()`` -- the stamped-but-dropped molecule is
         never appended to the result and never written -- so this test calls

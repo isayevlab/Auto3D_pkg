@@ -78,7 +78,7 @@ def test_opt_geometry_warns_when_patience_exceeds_opt_steps(monkeypatch, tmp_pat
 
 
 def test_opt_geometry_warns_when_patience_equals_opt_steps(monkeypatch, tmp_path, caplog):
-    """Chem-M3: the warning's predicate is `>=`, not `>`. The oscillation
+    """The warning's predicate is `>=`, not `>`. The oscillation
     counter starts at 0 and the step-1 force is always a reduction (the
     running minimum is seeded at +inf), so it can reach at most
     `opt_steps - 1` after `opt_steps` steps -- `patience == opt_steps` can
@@ -149,7 +149,7 @@ def test_opt_geometry_refuses_an_input_where_every_record_has_implicit_hydrogens
     Before this record-policy fix, this exact input produced a 1-record
     output scoring the bare {C, C, O} skeleton instead of ethanol.
 
-    `InputValidationError`, not `OptimizationError` (R3): nothing was optimized
+    `InputValidationError`, not `OptimizationError`: nothing was optimized
     because the INPUT holds no record anything could be computed from, which is
     a mistake the user can fix in the file -- and exit code 2, like every other
     bad-input verdict, rather than 7, which says a computation did not converge.

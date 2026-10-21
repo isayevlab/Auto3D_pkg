@@ -146,7 +146,7 @@ class TestGrouping:
 
 class TestGuards:
     def test_a_group_of_different_compounds_gets_relative_energies_only_within_each_compound(self):
-        """I3 (R49): the withholding is per identity, not per title.
+        """The withholding is per identity, not per title.
 
         ``calc_thermo`` accepts any SDF, including one with reused titles.
         Subtracting the energies of two different compounds would produce a
@@ -165,17 +165,17 @@ class TestGuards:
         assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
 
     def test_stereoisomers_sharing_a_title_get_relative_energies_within_their_own_identity(self):
-        """I3 (R49): a diastereomer pair sharing a title each gets its own reference.
+        """A diastereomer pair sharing a title each gets its own reference.
 
         ``ranking.species_id`` strips ``<isomer>_<conformer>``, so two
         enumerated stereoisomers of one input sharing a species id/title
         verbatim is routine by the time a thermo output is written.
         ``species_key`` perceives stereochemistry from the 3D coordinates, so
-        a diastereomer pair under one title is two distinct identities (Q3:
-        no cross-diastereomer Boltzmann distribution) -- but each identity's
+        a diastereomer pair under one title is two distinct identities (no
+        cross-diastereomer Boltzmann distribution) -- but each identity's
         OWN conformers are still comparable to each other, and withholding
         the whole title group used to blank those out too. A diastereomer
-        pair, not an enantiomer pair (M5): mirror images are degenerate under
+        pair, not an enantiomer pair: mirror images are degenerate under
         every potential Auto3D uses and are removed during enumeration, so an
         enantiomer pair sharing a title is not a geometry Auto3D produces.
         """
@@ -225,7 +225,7 @@ class TestGuards:
         assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * EV_TO_KCAL_PER_MOL)
 
     def test_a_stale_value_on_a_mixed_title_is_replaced_per_identity(self):
-        """I3 (R49): a title spanning two compounds no longer keeps a stale
+        """A title spanning two compounds no longer keeps a stale
         value by refusing to touch it -- each identity is recomputed, same
         as any other subgroup."""
         mols = [_conformer("shared", -10.0, "CCO"), _conformer("shared", -40.0, "c1ccccc1")]
@@ -381,7 +381,7 @@ class TestRelativeGibbsEnergies:
         assert not mols[1].HasProp(energy_mod.G_REL_KCAL_PROP)
 
     def test_different_compounds_sharing_a_title_get_their_own_gibbs_reference(self):
-        """I3 (R49): same per-identity split as ``set_relative_energies``."""
+        """The same per-identity split as ``set_relative_energies``."""
         from Auto3D.domain import energy as energy_mod
 
         mols = [
