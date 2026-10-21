@@ -103,6 +103,9 @@ _HINT_BY_KEY: dict[tuple[type, str], str] = {
     (ConfigurationError, "k_one_for_single_conformer"): (
         "Append --k=1 to keep one conformer per molecule."
     ),
+    (ConfigurationError, "aimnet_rejected_input"): (
+        "Choose another model with --engine; 'auto3d models list' shows what is available."
+    ),
 }
 
 
