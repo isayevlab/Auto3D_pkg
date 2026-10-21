@@ -687,7 +687,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
         )
 
 
-# --- The signature check is three named steps, not one long function ---
+# --- the signature check is three named steps, not one long function --------
 
 
 def test_check_forward_signature_is_three_named_steps():

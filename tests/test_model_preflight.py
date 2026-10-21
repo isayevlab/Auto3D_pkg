@@ -93,7 +93,7 @@ class TestColdCacheDiagnosis:
     def test_network_failure_names_the_network(self, isolated_input, monkeypatch):
         """An offline cold cache must produce a model/network error, not a chemistry one.
 
-        The fix for C8 is a pre-flight in the parent process before spawning
+        The fix is a pre-flight in the parent process before spawning
         workers (the only sane place, since workers run in separate spawned
         processes with no access to the parent's in-memory state):
         ``preflight_model`` (called from ``WorkflowOrchestrator._validate_input``)

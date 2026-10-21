@@ -942,8 +942,8 @@ class TestHotLoopDoesNotSync:
         ``nonzero`` result is reused twelve times instead of each gather and
         scatter computing its own, i.e. 18 -> 2, never 18 -> 0.
 
-        Two end-of-function additions (R67/R70, outside the hot per-step
-        loop this cluster otherwise polices) raised both fixed costs below by
+        Two end-of-function additions (outside the hot per-step loop this
+        cluster otherwise polices) raised both fixed costs below by
         exactly one each, and are accounted for rather than silently
         tolerated by a loosened bound:
 

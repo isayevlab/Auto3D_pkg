@@ -870,7 +870,7 @@ class TestSmiParserCrossAgreement:
     semantics" in prepare_chunks' docstring). These tests pin that the chunk
     file ``prepare_chunks`` writes and ``iter_smi_records`` read back agree,
     including on a `#`-prefixed line, which used to be a real, documented
-    divergence (M59) before the pandas reader this class is named for was
+    divergence before the pandas reader this class is named for was
     removed.
     """
 
