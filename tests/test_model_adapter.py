@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
+from Auto3D.foundation.exceptions import ConfigurationError
+
 # Adapter classes are imported locally inside the tests that need them; the
 # real-AIMNet2 tests now reuse the session-scoped ``aimnet_model`` fixture
 # (see tests/conftest.py) so the model is loaded once per session, not per test.
@@ -182,6 +184,247 @@ class TestAIMNet2Adapter:
     # forward pass is already covered end-to-end by
     # test_aimnet2_adapter_energy_forces_water / _padded_batch_matches_unpadded
     # below, which assert energy/force shapes and physical values.
+
+
+# -- the aimnet species/charge validator, and the typed error it becomes -----
+#
+# ``AIMNet2Calculator._validate_species_and_charge`` refuses two things with a
+# plain ``builtins.ValueError``: atomic numbers outside the model's
+# ``implemented_species``, and a net charge on a model whose family declares
+# ``supports_charged_systems`` false. Neither is an ``Auto3DError``, so before
+# the adapter converted them the user got an unhandled traceback out of the
+# very engine Auto3D's own routing had pointed them at.
+#
+# Both strings below are pasted verbatim from that validator rather than
+# paraphrased: the adapter recognizes the rejection by its text, so a reworded
+# upstream message must surface as a failure here and not as a silent return to
+# the untyped traceback.
+_UPSTREAM_ELEMENT_REJECTION = (
+    "Atomic numbers [26] are not in this model's implemented_species "
+    "[1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 34, 35, 53]. This model was trained on "
+    "a restricted element set; passing other elements yields undefined "
+    "output. For broader element coverage on equilibrium structures use "
+    "`isayevlab/aimnet2-wb97m-d3`; for radicals/open-shell systems use "
+    "`isayevlab/aimnet2-nse`. Pass validate_species=False to bypass."
+)
+_UPSTREAM_CHARGE_REJECTION = (
+    "This model does not support net-charged systems (got non-zero charge(s) "
+    "[1.0]). Net-neutral zwitterions are supported. For ions use "
+    "`isayevlab/aimnet2-wb97m-d3`. Pass validate_species=False to bypass."
+)
+
+#: One water molecule, unpadded, as the three tensors ``forward`` takes. What
+#: the stub calculator is handed never decides what it does -- the scripted
+#: exception does -- so the geometry only has to be well formed.
+_ONE_WATER = (
+    torch.tensor([[[0.0, 0.0, 0.0], [0.0, 0.0, 0.97], [0.0, 0.92, -0.25]]]),
+    torch.tensor([[8, 1, 1]]),
+    torch.tensor([0.0]),
+)
+
+
+class _ScriptedCalculator:
+    """Stand-in for ``aimnet.calculators.AIMNet2Calculator``.
+
+    Raises the exception it was built with, if it was built with one;
+    otherwise returns a well-formed result of the shapes the adapter unpacks.
+    Nothing is loaded and nothing is downloaded.
+    """
+
+    #: One charge channel, like every AIMNet2 model but the spin-aware ones, so
+    #: ``_with_spin`` adds no ``mult`` entry.
+    is_nse = False
+
+    def __init__(self, exc: BaseException | None = None) -> None:
+        self.exc = exc
+        #: The keyword arguments of each call, so a test can say which of the
+        #: two call sites it drove.
+        self.calls: list[dict] = []
+
+    def __call__(self, data: dict, **kwargs) -> dict:
+        self.calls.append(kwargs)
+        if self.exc is not None:
+            raise self.exc
+        coord = data["coord"]
+        if kwargs.get("hessian"):
+            n_atoms = coord.shape[-2]
+            return {"hessian": torch.zeros(n_atoms, 3, n_atoms, 3)}
+        n_mols = int(data["mol_idx"].max().item()) + 1
+        return {"energy": torch.full((n_mols,), -1.0), "forces": torch.zeros_like(coord)}
+
+
+def _scripted_adapter(calc: _ScriptedCalculator):
+    """An ``AIMNet2Adapter`` around ``calc``, built without loading a model.
+
+    ``AIMNet2Adapter.__init__`` constructs a real ``AIMNet2Calculator`` (model
+    download plus load), so the instance is created directly and given exactly
+    the attributes the two methods under test read.
+    """
+    from torch import nn
+
+    from Auto3D.engines.models.adapter import AIMNet2Adapter
+
+    adapter = AIMNet2Adapter.__new__(AIMNet2Adapter)
+    nn.Module.__init__(adapter)
+    adapter.device = torch.device("cpu")
+    adapter.coord_pad = 0.0
+    adapter.species_pad = 0
+    adapter.model_name = "aimnet2"
+    adapter._compiled = False
+    adapter.model = nn.Identity()
+    adapter._warned_open_shell = False
+    adapter._calc = calc
+    return adapter
+
+
+class TestAIMNet2CalculatorRejectionsAreTyped:
+    """The upstream validator's ``ValueError`` must reach the user as an ``Auto3DError``.
+
+    These drive the adapter through a scripted calculator rather than a real
+    model: what is under test is the conversion, and a real out-of-set element
+    only reaches the same ``ValueError`` more slowly. The real engine is
+    exercised by the slow test further down.
+    """
+
+    def test_an_out_of_set_element_becomes_a_configuration_error(self):
+        adapter = _scripted_adapter(_ScriptedCalculator(ValueError(_UPSTREAM_ELEMENT_REJECTION)))
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            adapter.forward(*_ONE_WATER)
+
+        message = str(excinfo.value)
+        # Upstream's text is kept whole: it names the offending atomic numbers
+        # and the full supported set, which is what the user needs and what no
+        # paraphrase on this side could reproduce (the set is per registry
+        # model -- aimnet2-pd supports palladium and the default does not).
+        assert _UPSTREAM_ELEMENT_REJECTION in message
+        assert "[26]" in message
+        assert "implemented_species [1, 5, 6," in message
+        # ... and the added context says which engine refused.
+        assert "aimnet2" in message
+        assert isinstance(excinfo.value.__cause__, ValueError)
+
+    def test_the_typed_error_carries_the_same_exit_code_as_the_ani_rejection(self):
+        """Exit 2, which is what ``policy.check_engine_supports_molecules``
+        already gives the ANI engines for the same molecule."""
+        from Auto3D.presentation.cli.errors import exit_code_for, get_error_hint
+
+        adapter = _scripted_adapter(_ScriptedCalculator(ValueError(_UPSTREAM_ELEMENT_REJECTION)))
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            adapter.forward(*_ONE_WATER)
+
+        assert exit_code_for(excinfo.value) == 2
+        # Not the ConfigurationError class hint, which would tell someone whose
+        # molecule contains iron to generate a config file.
+        hint = get_error_hint(excinfo.value)
+        assert hint is not None
+        assert "config init" not in hint
+
+    def test_a_net_charge_rejection_is_not_described_as_an_element_problem(self):
+        """The same validator refuses a net charge on a model whose family
+        declares ``supports_charged_systems`` false, so the wrapper's own words
+        must not name a cause."""
+        adapter = _scripted_adapter(_ScriptedCalculator(ValueError(_UPSTREAM_CHARGE_REJECTION)))
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            adapter.forward(*_ONE_WATER)
+
+        message = str(excinfo.value)
+        assert _UPSTREAM_CHARGE_REJECTION in message
+        added = message.replace(_UPSTREAM_CHARGE_REJECTION, "").lower()
+        assert "element" not in added
+        assert "atomic number" not in added
+        assert "species" not in added
+
+    def test_an_unrelated_value_error_passes_through_unchanged(self):
+        """Converting a ``ValueError`` that is not the validator's would be a
+        worse defect than the one being fixed, so the identical object is
+        re-raised: same type, same message, same traceback."""
+        original = ValueError("a shape mismatch that has nothing to do with species")
+        adapter = _scripted_adapter(_ScriptedCalculator(original))
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.forward(*_ONE_WATER)
+
+        assert excinfo.value is original
+        assert type(excinfo.value) is ValueError
+        assert str(excinfo.value) == "a shape mismatch that has nothing to do with species"
+
+    def test_analytic_hessian_converts_the_same_rejection(self):
+        """The second calculator call site. ``AIMNet2Calculator.eval`` validates
+        before it branches on ``hessian``, so the Hessian path reaches the same
+        validator and needs the same wrapper."""
+        calc = _ScriptedCalculator(ValueError(_UPSTREAM_ELEMENT_REJECTION))
+        adapter = _scripted_adapter(calc)
+        coords, species, charges = _ONE_WATER
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            adapter.analytic_hessian(coords, species, charges)
+
+        assert _UPSTREAM_ELEMENT_REJECTION in str(excinfo.value)
+        assert calc.calls == [{"hessian": True}]
+
+    def test_analytic_hessian_leaves_an_unrelated_value_error_alone(self):
+        original = ValueError("something else went wrong in the Hessian")
+        adapter = _scripted_adapter(_ScriptedCalculator(original))
+        coords, species, charges = _ONE_WATER
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.analytic_hessian(coords, species, charges)
+
+        assert excinfo.value is original
+
+    def test_the_adapter_does_not_raise_mults_shape_errors_as_configuration_errors(self):
+        """``_with_spin``'s own guard runs before the calculator is called, so
+        it is outside the converted region and keeps its ``ValueError``."""
+        adapter = _scripted_adapter(_ScriptedCalculator())
+        coords, species, charges = _ONE_WATER
+
+        with pytest.raises(ValueError, match="mults has shape"):
+            adapter.forward(coords, species, charges, mults=torch.ones(3))
+
+    def test_a_supported_input_is_untouched(self):
+        """Nothing about the happy path changes: both call sites return the
+        calculator's result, with the keyword arguments each site always sent."""
+        calc = _ScriptedCalculator()
+        adapter = _scripted_adapter(calc)
+        coords, species, charges = _ONE_WATER
+
+        energy, forces = adapter.forward(coords, species, charges)
+        assert energy.shape == (1,)
+        assert forces.shape == (1, 3, 3)
+
+        hessian = adapter.analytic_hessian(coords, species, charges)
+        assert hessian.shape == (3, 3, 3, 3)
+
+        assert calc.calls == [{"forces": True}, {"hessian": True}]
+
+
+@pytest.mark.slow
+def test_aimnet2_adapter_types_a_real_out_of_set_element(aimnet_model):
+    """The real engine, the real validator: iron through the default aimnet2.
+
+    Reuses the shared session ``aimnet_model`` fixture. The adapter is left
+    usable afterwards -- a supported molecule still returns an energy -- so the
+    refusal is a refusal of the input, not of the session.
+    """
+    adapter = aimnet_model
+    coords = torch.tensor([[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0], [0.0, 1.8, 0.0]]])
+    species = torch.tensor([[26, 8, 8]])
+    charges = torch.tensor([0.0])
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        adapter.forward(coords, species, charges)
+
+    message = str(excinfo.value)
+    assert "[26]" in message, "the offending atomic number must be named"
+    assert "implemented_species [1," in message, "the supported set must be named"
+    assert isinstance(excinfo.value.__cause__, ValueError)
+
+    water_coords, water_species, water_charges = _ONE_WATER
+    energy, _forces = adapter.forward(water_coords, water_species, water_charges)
+    assert torch.isfinite(energy).all()
 
 
 class TestANI2xtAdapter:
