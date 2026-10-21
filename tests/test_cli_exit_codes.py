@@ -228,7 +228,7 @@ def test_exit_2_click_usage_error(tmp_path):
 
 
 def test_exit_2_run_unsupported_input_format(tmp_path):
-    """P-m44: a wrong input extension to ``run`` must exit 2, not 1.
+    """A wrong input extension to ``run`` must exit 2, not 1.
 
     ``WorkflowOrchestrator._validate_input`` already raised a typed
     ``FileFormatError`` for this before model construction -- but
@@ -489,7 +489,7 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
 
 
 def test_exit_4_out_of_range_gpu_index_via_run(monkeypatch, tmp_path):
-    """P-m33 (R20): the same documented exit-4 example, reached through
+    """The same documented exit-4 example, reached through
     ``auto3d run`` rather than ``models test``. ``check_valid_configuration``
     used to fold an out-of-range gpu_idx into its returned error list, which
     ``WorkflowOrchestrator._validate_input`` wraps as a ConfigurationError

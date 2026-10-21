@@ -255,7 +255,7 @@ class TestEmbeddingGoesThroughEmbedWithRetry:
 
 
 class TestRDKitSdfIsomerReadsThroughTheSharedClassifier:
-    """P-m27: the engine reads through `classify_records(path, keep=(...))`
+    """The engine reads through `classify_records(path, keep=(...))`
     instead of its own `SDMolSupplier` loop + inline `has_dummy_atoms` check,
     keeping implicit-hydrogen and conformerless records (both legitimate
     input here: the engine calls `Chem.AddHs` and embeds every record it

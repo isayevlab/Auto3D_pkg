@@ -149,7 +149,7 @@ class TestInvalidSmilesDoesNotAbort:
 
 
 # ---------------------------------------------------------------------------
-# N-M3 — a dummy atom (atomic number 0) is not a species
+# A dummy atom (atomic number 0) is not a species
 # ---------------------------------------------------------------------------
 
 
@@ -471,7 +471,7 @@ class TestSpeFiltersAndAligns:
 
             def energy_batched(self, coords, numbers, charges, atom_mask=None):
                 # Energy-only: calc_spe stopped asking for forces it discards
-                # (audit M39, tests/test_spe_energy_only.py).
+                # (see tests/test_spe_energy_only.py).
                 n = coords.shape[0]
                 captured["n"] = n
                 return torch.arange(1, n + 1, dtype=torch.float64) * 10.0
@@ -508,10 +508,10 @@ class TestSpeFiltersAndAligns:
         assert float(written[1].GetProp("E_hartree")) == 20.0 * EV_TO_HARTREE
 
     def test_calc_spe_all_filtered_is_refused_as_an_input_error(self, tmp_path, monkeypatch):
-        """FIX B: an SDF whose only record is None must not raise the cryptic
+        """An SDF whose only record is None must not raise the cryptic
         'max() arg is an empty sequence' from pad_from_mols([]).
 
-        It no longer warns and returns an empty SDF either (R3): a 0-byte
+        It no longer warns and returns an empty SDF either: a 0-byte
         output file at exit code 0 is indistinguishable, to the pipeline that
         reads it, from a run whose input genuinely held no molecules -- so the
         verdict is an `InputValidationError` naming the counts, and no output
@@ -660,7 +660,7 @@ def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
 
 
 # ---------------------------------------------------------------------------
-# N-m9 -- the serial-embedding "no conformers" warning names its cause
+# The serial-embedding "no conformers" warning names its cause
 # ---------------------------------------------------------------------------
 
 
@@ -710,7 +710,7 @@ class TestNoConformersWarningNamesItsCause:
 
 
 # ---------------------------------------------------------------------------
-# P-m14 (first half) -- progress bars off when nobody is watching
+# Progress bars off when nobody is watching
 # ---------------------------------------------------------------------------
 
 

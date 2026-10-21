@@ -71,7 +71,7 @@ class TestRequiresAimnetCountsRadicalElectrons:
 
 
 class TestRequiresAimnetIsPublic:
-    """P-m31: `requires_aimnet` is a public name in the engine policy module,
+    """`requires_aimnet` is a public name in the engine policy module,
     not an underscore-prefixed one -- it is a model precondition other
     modules (orchestration's input checks) have to ask about, not an
     implementation detail private to this one."""
@@ -152,7 +152,7 @@ class TestZwitterionWarning:
     formal charge is 0), so it reaches ANI2x/ANI2xt silently -- the ANI
     networks take no total-charge input and were parameterized on
     net-neutral, closed-shell molecules, so a zwitterion's internal charge
-    separation is an extrapolation for them (R54)."""
+    separation is an extrapolation for them."""
 
     def test_net_zero_zwitterion_under_ani_warns(self, caplog):
         mol = _mol("[NH3+]CC(=O)[O-]")
@@ -179,7 +179,7 @@ class TestZwitterionWarning:
 
 
 class TestHasDummyAtoms:
-    """N-M3: an R-group placeholder (``*``, ``[3*]``) is not a species.
+    """An R-group placeholder (``*``, ``[3*]``) is not a species.
 
     AIMNet2 uses embedding index 0 as its padding slot, so a dummy atom is
     scored as a zero-feature ghost rather than rejected; ANI refuses it as

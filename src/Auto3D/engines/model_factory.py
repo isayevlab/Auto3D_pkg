@@ -68,7 +68,7 @@ def _verify_compiled_adapter(
 
     Private: it is absent from ``docs/source/api.rst``, its only caller is
     :meth:`ModelFactory.create`, and what a user needs to know about it is
-    ``create_model``'s ``Raises:`` block (A-2). ``_probe_mols`` beside it is
+    ``create_model``'s ``Raises:`` block. ``_probe_mols`` beside it is
     private for the same reason.
     """
     mols = _probe_mols()
@@ -106,7 +106,7 @@ def _rebaseline_compile_fallback_counters(adapter: BaseModelAdapter) -> None:
     ``_compile_suppressed_seen`` is reset along with the snapshot, and must be:
     if the probe itself suppressed a frame, the count is already 1, and after
     the snapshot moves forward the next genuine suppression computes a delta of
-    1 again -- which is not greater than 1, so it would never be reported (T-2).
+    1 again -- which is not greater than 1, so it would never be reported.
     """
     adapter._compile_frame_stats_before = dict(torch._dynamo.utils.counters.get("frames", {}))
     adapter._compile_suppressed_seen = 0

@@ -354,7 +354,7 @@ def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
 def test_a_model_returning_a_scalar_energy_is_rejected_on_the_first_forward(tmp_path):
     """A model that satisfies the attribute and arity checks but returns a
     bare scalar (not one energy per molecule) loads cleanly: ``load_custom_nnp``
-    no longer runs a synthetic probe forward to catch this (R52) -- executing
+    no longer runs a synthetic probe forward to catch this -- executing
     the user's model has side effects the loader cannot bound (a real custom
     NNP's calculator can lazily build persistent per-instance state sized off
     whatever geometry it is first called with, and a degenerate load-time
@@ -687,7 +687,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
         )
 
 
-# --- P-m22: the signature check is three named steps, not one long function ---
+# --- the signature check is three named steps, not one long function --------
 
 
 def test_check_forward_signature_is_three_named_steps():

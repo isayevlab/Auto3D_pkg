@@ -261,7 +261,7 @@ def isomer_wrapper(
             # put then raises from inside a `finally` -- turning a quiet
             # SystemExit(130) into a BrokenPipeError traceback on the shared
             # stderr, which is the exact noise the `except KeyboardInterrupt`
-            # above exists to avoid (C-3b). (Belt-and-braces in practice: since
+            # above exists to avoid. (Belt-and-braces in practice: since
             # bpo-36368 the Manager server ignores SIGINT, so it normally
             # survives the group interrupt that reaches these workers.)
             with contextlib.suppress(OSError, EOFError, BrokenPipeError):

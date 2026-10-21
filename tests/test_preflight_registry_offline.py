@@ -1,5 +1,5 @@
 """The parent resolves an aimnet model name and checks a cached model without importing
-``aimnet.calculators`` (P-M8): that import loads torch, warp and the CUDA runtime, and
+``aimnet.calculators``: that import loads torch, warp and the CUDA runtime, and
 ``auto3d run`` paid it once in the parent and again in every worker."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Every thermo record states the conventions that produced its G (N-M5, m17, D7).
+"""Every thermo record states the conventions that produced its G.
 
 sigma, the standard state and the mass convention are modeling choices that do
 not cancel between species, so a record must carry them; ``Thermo_convention``

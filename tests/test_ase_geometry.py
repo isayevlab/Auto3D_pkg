@@ -52,7 +52,7 @@ def _two_record_input(tmp_path, monkeypatch):
 
 
 def test_opt_geometry_rejects_patience_zero(monkeypatch, tmp_path):
-    """N-m21: `patience` has no lower bound on the `OptimizationConfig` path
+    """`patience` has no lower bound on the `OptimizationConfig` path
     today, so `patience=0` silently drops every converged structure as
     oscillating on its very first step instead of being refused up front."""
     from Auto3D.entry.ASE.geometry import opt_geometry
@@ -78,7 +78,7 @@ def test_opt_geometry_warns_when_patience_exceeds_opt_steps(monkeypatch, tmp_pat
 
 
 def test_opt_geometry_warns_when_patience_equals_opt_steps(monkeypatch, tmp_path, caplog):
-    """Chem-M3: the warning's predicate is `>=`, not `>`. The oscillation
+    """The warning's predicate is `>=`, not `>`. The oscillation
     counter starts at 0 and the step-1 force is always a reduction (the
     running minimum is seeded at +inf), so it can reach at most
     `opt_steps - 1` after `opt_steps` steps -- `patience == opt_steps` can
@@ -98,7 +98,7 @@ def test_opt_geometry_warns_when_patience_equals_opt_steps(monkeypatch, tmp_path
 @pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom
-    skeleton (N-C1). `Optimizer.run()` (Auto3D.engines.batch_opt.batchopt)
+    skeleton. `Optimizer.run()` (Auto3D.engines.batch_opt.batchopt)
     reads its input through `iter_conformer_records` directly -- the same
     filter `calc_spe`/`opt_geometry`/`select_tautomers` apply to their own
     reads of `path` -- so the implicit-H record is skipped at the one place
@@ -149,7 +149,7 @@ def test_opt_geometry_refuses_an_input_where_every_record_has_implicit_hydrogens
     Before this record-policy fix, this exact input produced a 1-record
     output scoring the bare {C, C, O} skeleton instead of ethanol.
 
-    `InputValidationError`, not `OptimizationError` (R3): nothing was optimized
+    `InputValidationError`, not `OptimizationError`: nothing was optimized
     because the INPUT holds no record anything could be computed from, which is
     a mistake the user can fix in the file -- and exit code 2, like every other
     bad-input verdict, rather than 7, which says a computation did not converge.

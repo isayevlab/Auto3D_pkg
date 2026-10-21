@@ -942,18 +942,18 @@ class TestHotLoopDoesNotSync:
         ``nonzero`` result is reused twelve times instead of each gather and
         scatter computing its own, i.e. 18 -> 2, never 18 -> 0.
 
-        Two end-of-function additions (R67/R70, outside the hot per-step
-        loop this cluster otherwise polices) raised both fixed costs below by
+        Two end-of-function additions (outside the hot per-step loop this
+        cluster otherwise polices) raised both fixed costs below by
         exactly one each, and are accounted for rather than silently
         tolerated by a loosened bound:
 
         - ``print_stats``'s one call to ``optimization_counts`` now reads
           THREE scalars, not two: ``converged_mask``'s sum,
-          ``oscillating_count``'s threshold sum, and (R70) ``non_finite``'s
+          ``oscillating_count``'s threshold sum, and ``non_finite``'s
           sum, so a row retired as non-finite is never double-reported as
           still "active".
         - ``_recompute_final_energy_and_fmax`` now does ONE extra
-          ``torch.nonzero`` (R67) to select only the finite rows before its
+          ``torch.nonzero`` to select only the finite rows before its
           one ``forward_batched`` call, so a row already flagged
           ``non_finite`` is not re-bisected and re-placeholdered for no new
           information.

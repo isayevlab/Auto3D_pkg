@@ -88,7 +88,7 @@ def test_a_record_that_contradicts_itself_is_rejected(label, mol):
 def test_calc_thermo_marks_implicit_hydrogen_records_as_failed(tmp_path, caplog, monkeypatch):
     """calc_thermo must mark an implicit-H record `Thermo_failed`, not score
     its bare heavy-atom skeleton and not let it silently vanish from the
-    output the way a None/conformerless record does (N-C1).
+    output the way a None/conformerless record does.
 
     Runs `calc_thermo` end to end with a param-less stub NNP -- the same
     double-and-monkeypatch pattern
@@ -145,7 +145,7 @@ def test_calc_thermo_marks_implicit_hydrogen_records_as_failed(tmp_path, caplog,
 
 
 def test_calc_thermo_marks_dummy_atom_records_as_failed(tmp_path, caplog, monkeypatch):
-    """A dummy-atom record gets the same treatment as an implicit-H one (N-M3).
+    """A dummy-atom record gets the same treatment as an implicit-H one.
 
     Mirrors ``test_calc_thermo_marks_implicit_hydrogen_records_as_failed``
     above, down to the param-less stub NNP: the record is caught before the

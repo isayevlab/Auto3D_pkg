@@ -503,7 +503,7 @@ def test_json_output_is_pure_json(auto3d_process):
     provide it -- it failed when run alone and passed in the full suite only
     because some earlier test had already paid for that import, so the banner
     was spent by the time it ran. A broken `--json` therefore shipped green.
-    The parent no longer performs that import (P-M8, 3.2.0), so the stubbed run
+    The parent no longer performs that import (as of 3.2.0), so the stubbed run
     injects its own foreign stdout write (``FOREIGN_STDOUT_MARKER``) to keep
     the containment exercised rather than relying on a library's banner.
 
@@ -514,7 +514,7 @@ def test_json_output_is_pure_json(auto3d_process):
     document, the whole document, and nothing but the document".
 
     Marked slow because it is a real subprocess run of the CLI (about 3 s
-    after P-M8 removed the warp import from the parent; 20.1 s before), not
+    after the warp import was removed from the parent; 20.1 s before), not
     for GPU or network needs.
     """
     import json
@@ -1206,7 +1206,7 @@ def test_run_forwards_the_parallel_embedding_flag(runner, tmp_path_cwd, flag, ex
 def test_run_accepts_the_deprecated_flag_spellings_and_warns(
     runner, tmp_path_cwd, flag, value, field, expected
 ):
-    """P-m15: ``--mpi-np``/``--enumerate-isomer`` are hidden, not removed.
+    """``--mpi-np``/``--enumerate-isomer`` are hidden, not removed.
 
     Unlike the new-flag forwarding above, nothing exercised these old
     spellings through Typer after the rename -- ``test_cli_app.py`` only

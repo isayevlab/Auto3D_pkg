@@ -368,7 +368,7 @@ class BatchedEnergyForce(nn.Module):
                         f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
                     )
                 # Halve the SUB-BATCH SIZE, not the length of the slice that
-                # happened to fail (T-3) -- but never to more than that length.
+                # happened to fail -- but never to more than that length.
                 # Both halves matter:
                 #
                 # * `bsize // 2` rather than `sub.numel() // 2`, because a tail

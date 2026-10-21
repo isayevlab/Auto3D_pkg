@@ -100,7 +100,7 @@ def _sigterm_raises() -> Iterator[None]:
       for the duration of one ``main()``. Nothing is lost by declining:
       every worker arms ``PR_SET_PDEATHSIG`` plus a parent-sentinel watchdog
       of its own (``Auto3D.foundation.process_lifecycle``), so the workers
-      still die with the parent however the parent goes (A-3).
+      still die with the parent however the parent goes.
 
     When the handler IS installed, the previous disposition -- ``SIG_DFL`` by
     the guard above -- is put back on the way out, so one ``main()`` call

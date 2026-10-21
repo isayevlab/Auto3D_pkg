@@ -17,7 +17,7 @@ No neural network potential is loaded: ``ensemble_opt`` is stubbed and the
 adapter is a conforming double, so the real padder, the real ``Optimizer.run``
 writer, the real ``_annotate_and_rewrite`` and the real ranker all execute.
 
-``Optimizer`` no longer builds its own adapter (audit M41), so the direct tests
+``Optimizer`` no longer builds its own adapter, so the direct tests
 inject one and the ``opt_geometry`` tests stub ``create_model`` where
 ``opt_geometry`` itself reads it -- ``Auto3D.entry.ASE.geometry`` -- rather than at a
 seam inside ``batch_opt``.

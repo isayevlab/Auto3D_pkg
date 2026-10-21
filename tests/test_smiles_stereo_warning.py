@@ -188,7 +188,7 @@ class TestTheWarningStillDiscriminates:
 
 
 class TestUnspecifiedStereoWarningsAggregatePerFile:
-    """P-m32: a file with several under-specified records must get ONE
+    """A file with several under-specified records must get ONE
     UserWarning naming all of them, not one warning per record flooding the
     log -- the same aggregation `_warn_about_dummy_atom_records` already does
     for dummy-atom records."""

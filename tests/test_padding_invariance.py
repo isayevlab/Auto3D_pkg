@@ -6,7 +6,7 @@ being torchani's masked-atom sentinel. ``ANI2xt.forward`` in
 ``models/ani2xt.py`` documents that second assumption (species
 == -1 surviving the periodic-table remap unchanged and relying on
 TorchANI's masked-atom convention) as depended-upon but not independently
-verified there. These tests verify it (audit M32, C13).
+verified there. These tests verify it.
 """
 
 from __future__ import annotations

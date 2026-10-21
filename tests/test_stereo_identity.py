@@ -288,7 +288,7 @@ class TestChiralPhosphorusIdentity:
     canonicalize to the same SMILES, the duplicate filters read them as
     conformers of one species, and -- for a pair whose heavy-atom RMSD can fall
     below the threshold on a rigid scaffold -- whichever has the higher energy
-    is dropped with nothing logged (finding N-M10).
+    is dropped with nothing logged.
 
     That last step is a guarded case rather than a demonstrated one for small
     tertiary phosphines: the closest cross pair of MMFF-relaxed conformers is
@@ -465,7 +465,7 @@ class TestChiralPhosphorusIdentity:
         assert _pnictogen(probe).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
 
     def test_arsine_epimers_have_distinct_species_keys(self, stereo_perception):
-        """N-M10 is the same defect for arsenic, and the pipeline reaches it.
+        """The same defect appears for arsenic, and the pipeline reaches it.
 
         ``FindPotentialStereo`` counts a trivalent As center, so
         ``count_unspecified_stereo`` warns about it, and
