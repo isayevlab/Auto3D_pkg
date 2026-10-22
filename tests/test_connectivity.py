@@ -89,7 +89,7 @@ class TestCheckConnectivity:
         assert isinstance(result, bool)
 
     def test_p_c_bond_uses_phosphorus_largest_uff_radius_not_silicons(self):
-        """N-m26: phosphorus had silicon's radius, not its own.
+        """Phosphorus had silicon's radius, not its own.
 
         The old table entry for P (15) was 1.117 -- Si's UFF radius, not
         P_3+3's 1.101 (Rappe et al. 1992, Table 1). ``check_connectivity``'s
@@ -111,7 +111,7 @@ class TestCheckConnectivity:
         assert check_connectivity(mol.GetMol()) is False
 
     def test_c_o_bond_uses_oxygens_largest_uff_radius(self):
-        """Q2/M1 (R50): O and S use their largest UFF type too, not just P.
+        """O and S use their largest UFF type too, not just P.
 
         O_3 (0.658) is not the largest tabulated UFF radius for oxygen --
         O_R (aromatic/resonant oxygen, 0.680) is -- and the module header
@@ -133,7 +133,7 @@ class TestCheckConnectivity:
         assert check_connectivity(mol.GetMol()) is True
 
     def test_c_s_bond_uses_sulfurs_largest_uff_radius(self):
-        """Q2/M1 (R50): the same correction for sulfur, mirroring the C-O case.
+        """The same correction for sulfur, mirroring the C-O case.
 
         Reference sum: 1.25x(0.757 + 1.077) = 2.2925 A under the corrected
         table, 1.25x(0.757 + 1.064) = 2.27625 A under the old one. A 2.28 A
@@ -152,7 +152,7 @@ class TestCheckConnectivity:
 
 
 class TestUntabulatedElementsAreReportedOncePerProcess:
-    """N-m27: "no opinion" must not be silent, and must not be a wall of lines.
+    """A "no opinion" result must not be silent, and must not be a wall of lines.
 
     Skipping every pair that involves an element outside the UFF radii table
     means check_connectivity returns True for a geometry it never actually

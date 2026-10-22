@@ -1,4 +1,4 @@
-"""P-C2 / P-M12: a dying parent must not leave optimizer workers running."""
+"""A dying parent must not leave optimizer workers running."""
 
 import contextlib
 import os
@@ -12,7 +12,7 @@ import pytest
 
 # Every case here reads /proc to tell a live child from a zombie, and arms
 # PR_SET_PDEATHSIG in the workers. Skipped rather than silently vacuous
-# elsewhere (A-10): `_alive` returning False on a platform without /proc would
+# elsewhere: `_alive` returning False on a platform without /proc would
 # make "no orphaned workers" true for the wrong reason.
 pytestmark = pytest.mark.skipif(
     sys.platform != "linux", reason="lifecycle tests observe /proc and PR_SET_PDEATHSIG"
@@ -230,9 +230,9 @@ def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
     process at once, wherever each happens to be -- for an optimizer that is
     almost always the blocking ``chunk_queue.get()``, and for the isomer worker
     a ``time.sleep``. That is the path that used to print one
-    ``Process SpawnProcess-N: Traceback`` per child across the run's own output
-    (P-M12), and the path on which a sentinel ``put`` can find the Manager
-    already gone (C-3b).
+    ``Process SpawnProcess-N: Traceback`` per child across the run's own
+    output, and the path on which a sentinel ``put`` can find the Manager
+    already gone.
 
     ``_launch`` passes ``start_new_session=True``, so the parent's pid IS its
     process-group id: this signals exactly the processes this harness started

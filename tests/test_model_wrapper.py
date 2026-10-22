@@ -374,7 +374,7 @@ def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():
 
 
 def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
-    """M37: empty_cache()/the retry must run AFTER the except block has been
+    """empty_cache()/the retry must run AFTER the except block has been
     left, not while the OOM exception (and everything its traceback keeps
     alive, including the failed forward's activations) is still the
     currently-handled exception -- otherwise empty_cache() can only release
@@ -426,7 +426,7 @@ def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
 
 
 def test_bsize_shrinkage_persists_for_remainder_of_batch():
-    """M37: once a slice OOMs and is halved, LATER slices in the same
+    """Once a slice OOMs and is halved, LATER slices in the same
     forward_batched call must reuse the shrunk size, not repeat the same
     OOM-and-recurse cycle at the original (pre-OOM) size for every remaining
     slice."""
@@ -545,7 +545,7 @@ class TestEnForceANIRejectsNonAdapters:
 
 
 def test_oom_shrunk_bsize_persists_across_calls():
-    """P-M3: the halved sub-batch size must be remembered for the next step,
+    """The halved sub-batch size must be remembered for the next step,
     not recomputed from batchsize_atoms on every forward_batched call."""
     from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
@@ -573,13 +573,13 @@ def test_oom_shrunk_bsize_persists_across_calls():
 
 
 def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
-    """T-3: the shrunk size comes from `bsize`, not from the tail's length.
+    """The shrunk size comes from `bsize`, not from the tail's length.
 
     The last slice of a batch is short because the molecules ran out, not
     because memory did, so halving *it* published a size for
     ``_bsize_by_n[N]`` that no other part of the batch had shown to be
     necessary -- and ``_bsize_by_n`` is read again by every later optimizer
-    step (P-M3). Here 6 molecules at ``bsize`` 4 leave a tail of 2 that OOMs
+    step. Here 6 molecules at ``bsize`` 4 leave a tail of 2 that OOMs
     once; the sub-batch size for the rest of the run must be 2 (4 // 2), not
     1 (2 // 2).
     """
@@ -619,7 +619,7 @@ def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
 
 
 def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves():
-    """T-3: the halved size is capped at the size that just failed.
+    """The halved size is capped at the size that just failed.
 
     ``bsize`` starts from ``batchsize_atoms // N`` and routinely exceeds the
     number of molecules still active -- conformers converge and leave the batch

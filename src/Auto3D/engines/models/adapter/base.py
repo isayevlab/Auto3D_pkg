@@ -157,7 +157,7 @@ class BaseModelAdapter(ABC, nn.Module):
         # back long after the first forward (the recompile limit -- see that
         # method's docstring), so a one-shot gate spent its single observation
         # on a frame that always compiles cleanly and then stayed silent
-        # forever (T-2).
+        # forever.
         self._compile_suppressed_seen = 0
 
         # Disable gradients for model parameters (inference mode)

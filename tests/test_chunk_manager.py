@@ -58,13 +58,13 @@ class TestCalculateMemoryAndChunks:
             (None, [0, 1], False, 16, 1),
             # GPU path (memory=None, use_gpu=True): memory_gb comes from
             # _gpu_free_memory_gb; num_jobs is 1 for a single index, one per
-            # GPU for a list (N-m32).
+            # GPU for a list.
             (None, 0, True, 8, 1),
             (None, [0, 1], True, 8, 2),
             # Explicit --memory: memory_gb is that value regardless of
             # use_gpu/gpu_idx; num_jobs still reflects a GPU list, even
-            # combined with an explicit memory (N-m32) -- the (8, [0, 1],
-            # True) cell is this task's Step 2 fix, pinned once here.
+            # combined with an explicit memory -- the (8, [0, 1], True)
+            # cell is pinned once here.
             (8, 0, False, 8, 1),
             (8, [0, 1], False, 8, 1),
             (8, 0, True, 8, 1),
@@ -81,7 +81,7 @@ class TestCalculateMemoryAndChunks:
         expected_memory_gb,
         expected_num_jobs,
     ):
-        """P-m50: the memory x gpu_idx x use_gpu grid, replacing five
+        """The memory x gpu_idx x use_gpu grid, replacing five
         separate one-arm tests. Only the mock each cell's branch actually
         reaches is set up: explicit --memory cells need none at all, the GPU
         branch mocks _gpu_free_memory_gb, and the CPU branch mocks psutil
@@ -123,7 +123,7 @@ class TestCalculateMemoryAndChunks:
     def test_nvidia_smi_fallback_with_gpu_list_still_returns_gpu_count(self, monkeypatch, tmp_path):
         """The nvidia-smi-unavailable fallback (a conservative 1 GB budget)
         must not affect num_jobs: num_jobs is computed independent of which
-        branch supplies memory_gb (N-m32), so a listed GPU still gets its own
+        branch supplies memory_gb, so a listed GPU still gets its own
         job even when memory falls back to the default."""
         config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=[0, 1])
         manager = ChunkManager(
@@ -143,7 +143,7 @@ class TestCalculateMemoryAndChunks:
         assert num_jobs == 2
 
     def test_cpu_memory_uses_available_not_total(self, monkeypatch, tmp_path, smi_input):
-        """N-m33: the CPU path must size chunks from *available* memory, not
+        """The CPU path must size chunks from *available* memory, not
         *total* -- total ignores every other process already resident, which
         can make chunk sizing (and the batchsize_atoms scaling derived from
         it) wildly optimistic on a shared box."""
@@ -169,7 +169,7 @@ class TestCalculateMemoryAndChunks:
         assert memory_gb == 8
 
     def test_cpu_memory_is_clamped_by_the_cgroup_limit(self, monkeypatch, tmp_path, smi_input):
-        """N-m33: a cgroup v2 memory.max limit below the host's available
+        """A cgroup v2 memory.max limit below the host's available
         memory must win -- this process may be confined to far less than
         `psutil` reports for the whole machine (a shared box, a container)."""
         limit = tmp_path / "memory.max"
@@ -235,7 +235,7 @@ class TestCalculateMemoryAndChunks:
 
 
 class TestGpuFreeMemoryGb:
-    """Tests for chunk_manager._gpu_free_memory_gb (audit M36).
+    """Tests for chunk_manager._gpu_free_memory_gb.
 
     This helper exists specifically so ChunkManager never has to call
     torch.cuda.get_device_properties/mem_get_info from the parent process --
@@ -371,7 +371,7 @@ class TestGpuFreeMemoryGb:
 
 
 class TestCalculateMemoryNeverTouchesCuda:
-    """M36: the parent process must never initialize a CUDA context just to
+    """The parent process must never initialize a CUDA context just to
     size a chunk. torch.cuda.get_device_properties and torch.cuda.mem_get_info
     are poisoned to fail loudly if called at all, rather than silently
     succeeding against whatever real GPU state this box happens to have.
@@ -382,8 +382,7 @@ class TestCalculateMemoryNeverTouchesCuda:
 
         def _poison(*a, **k):
             raise AssertionError(
-                "calculate_memory_and_chunks must not touch torch.cuda for a "
-                "memory query (audit M36)"
+                "calculate_memory_and_chunks must not touch torch.cuda for a memory query"
             )
 
         monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
@@ -419,7 +418,7 @@ class TestCalculateMemoryNeverTouchesCuda:
         import torch
 
         def _poison(*a, **k):
-            raise AssertionError("must not touch torch.cuda (audit M36)")
+            raise AssertionError("must not touch torch.cuda")
 
         monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
         monkeypatch.setattr(torch.cuda, "mem_get_info", _poison)
@@ -448,7 +447,7 @@ def test_scaled_batchsize_atoms(per_gb, memory_gb, expected):
     ``main()`` reaches it through ``prepare_chunks``, which is also where it
     used to be written inline; ``smiles2mols`` has no chunking step at all and
     so has to call the rule itself. One function, so the two entry points
-    cannot drift apart again (the 16x they had drifted is what P-M11 named).
+    cannot drift apart again -- they had drifted 16x apart.
     """
     from Auto3D.orchestration.chunk_manager import scaled_batchsize_atoms
 
@@ -456,7 +455,7 @@ def test_scaled_batchsize_atoms(per_gb, memory_gb, expected):
 
 
 class TestScaledBatchsizeAtomsClamp:
-    """M36: the memory multiplier must not scale batchsize_atoms without
+    """The memory multiplier must not scale batchsize_atoms without
     bound (a bare `batchsize_atoms * memory_gb` reaches 81,920 atoms/call on
     an 80 GB GPU at the documented default)."""
 
@@ -513,7 +512,7 @@ class TestScaledBatchsizeAtomsClamp:
 
 
 class TestCeilingCommentCitesMeasurement:
-    """P-m30: the ceiling's comment must justify 1024 * 16 by the measurement
+    """The ceiling's comment must justify 1024 * 16 by the measurement
     that bounded it, not merely by restating that it equals some other
     wrapper's own default elsewhere in the codebase -- a coincidence of two
     numbers, not evidence either one is safe."""
@@ -653,7 +652,7 @@ class TestPrepareChunks:
     """Tests for ChunkManager.prepare_chunks()."""
 
     def test_prepare_chunks_reads_through_iter_smi_records(self, monkeypatch, tmp_path, smi_input):
-        """P-m28 (R20): the encoded `.smi` is read by `iter_smi_records`, the
+        """The encoded `.smi` is read by `iter_smi_records`, the
         same parser `auto3d validate` and the run pipeline use, not by a
         second, independent pandas reader."""
         seen = []
@@ -759,7 +758,7 @@ class TestPrepareChunks:
 
 
 class TestChunkCountAtExactMultiples:
-    """N-m35: `data_size // chunk_size + 1` always adds a chunk, even when
+    """`data_size // chunk_size + 1` always adds a chunk, even when
     `data_size` divides `chunk_size` evenly -- the "+1" chunk gets no rows at
     all and is dropped by _create_chunk_files' empty-chunk skip, but it was
     still allocated and counted against num_jobs, one more job than the work
@@ -863,7 +862,7 @@ class TestRaggedSmiAndChunkSizeClamp:
 
 
 class TestSmiParserCrossAgreement:
-    """P-m28 (R20): chunk_manager now reads an already-ID-encoded `.smi` file
+    """chunk_manager now reads an already-ID-encoded `.smi` file
     through ``iter_smi_records`` -- the same parser `auto3d validate` and the
     run pipeline use -- and writes each chunk through ``write_smi_records``,
     so there is exactly one reader and one writer for this format rather than
@@ -871,7 +870,7 @@ class TestSmiParserCrossAgreement:
     semantics" in prepare_chunks' docstring). These tests pin that the chunk
     file ``prepare_chunks`` writes and ``iter_smi_records`` read back agree,
     including on a `#`-prefixed line, which used to be a real, documented
-    divergence (M59) before the pandas reader this class is named for was
+    divergence before the pandas reader this class is named for was
     removed.
     """
 

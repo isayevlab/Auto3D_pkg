@@ -296,7 +296,7 @@ def _nvidia_smi_id(device: torch.device) -> str:
 
 
 def gpu_state(device: torch.device) -> dict | None:
-    """Snapshot this card's driver, utilization, clocks, temperature and
+    """Snapshot this card's UUID, driver, utilization, clocks, temperature and
     memory, plus the other processes holding it (pids and memory only, no
     process names), via ``nvidia-smi``. ``None`` on a CPU run. The resolved
     ``nvidia-smi`` id (see :func:`_nvidia_smi_id`, which accounts for
@@ -305,6 +305,12 @@ def gpu_state(device: torch.device) -> dict | None:
     installed, no permission, ...) is reported as an ``"error"`` key rather
     than raised, since this is a diagnostic snapshot, not something the
     measurement should abort on by itself.
+
+    ``uuid`` is here because an ordinal is not a card: ``--id`` addresses
+    physical enumeration, which can be renumbered, and a results note that
+    names the card it ran on had no record to read that name from. Records
+    written before this was added carry no ``uuid`` key, and nothing
+    backfills one.
     """
     if device.type != "cuda":
         return None
@@ -314,13 +320,15 @@ def gpu_state(device: torch.device) -> dict | None:
             [
                 "nvidia-smi",
                 f"--id={smi_id}",
-                "--query-gpu=driver_version,utilization.gpu,clocks.sm,clocks.mem,"
+                "--query-gpu=uuid,driver_version,utilization.gpu,clocks.sm,clocks.mem,"
                 "temperature.gpu,memory.used",
                 "--format=csv,noheader",
             ],
             text=True,
         ).strip()
-        driver, util, clock_sm, clock_mem, temp, mem_used = (s.strip() for s in gpu_line.split(","))
+        uuid, driver, util, clock_sm, clock_mem, temp, mem_used = (
+            s.strip() for s in gpu_line.split(",")
+        )
         apps_text = subprocess.check_output(
             [
                 "nvidia-smi",
@@ -342,6 +350,7 @@ def gpu_state(device: torch.device) -> dict | None:
         return {"error": f"{type(exc).__name__}: {exc}"}
     return {
         "nvidia_smi_id": smi_id,
+        "uuid": uuid,
         "driver_version": driver,
         "utilization_gpu": util,
         "clocks_sm": clock_sm,

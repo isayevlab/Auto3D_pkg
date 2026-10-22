@@ -201,7 +201,7 @@ class TestAuto3DOptions:
 
 
 def test_optimization_config_exposes_no_energy_criterion_knobs():
-    """The energy-stability knobs are gone, not merely defaulted (audit M1).
+    """The energy-stability knobs are gone, not merely defaulted.
 
     ``test_energy_tol_above_fp32_noise`` stood here until 3.0.0 and asserted
     that ``DEFAULT_ENERGY_TOL >= 1e-3`` so the criterion would be "live". It
@@ -311,7 +311,7 @@ def test_optimization_config_carries_a_named_fire_constant_set():
 
 
 def test_old_option_names_still_work_and_warn():
-    """P-m15: ``mpi_np``/``enumerate_isomer`` are renamed ``isomer_threads``/
+    """``mpi_np``/``enumerate_isomer`` are renamed ``isomer_threads``/
     ``enumerate_isomers``; the old spellings still work for one release,
     with a ``DeprecationWarning`` naming the new field."""
     with pytest.warns(DeprecationWarning, match="isomer_threads"):
@@ -324,8 +324,7 @@ def test_old_option_names_still_work_and_warn():
 
 
 def test_the_new_name_wins_when_both_old_and_new_are_passed():
-    """Review fix round 1, Task I1: passing both spellings must not let the
-    deprecated one silently win.
+    """Passing both spellings must not let the deprecated one silently win.
 
     The CLI's own reconciliation (``commands/run.py``) already resolves the
     same ambiguity as "the new flag wins if a caller somehow passes both";

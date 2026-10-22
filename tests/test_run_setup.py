@@ -163,8 +163,8 @@ def test_require_records_names_the_counts_and_the_path():
 def test_require_any_raises_only_for_a_file_with_nothing_parseable(tmp_path):
     """``calc_thermo``'s verdict, through the real prologue on real files.
 
-    A defective record is something to mark, not a reason to refuse the file
-    (D2), so only a file that yielded no ``Mol`` at all leaves it with nothing
+    A defective record is something to mark, not a reason to refuse the file,
+    so only a file that yielded no ``Mol`` at all leaves it with nothing
     to write.
     """
     from Auto3D.entry._run_setup import prepare_single_file_run

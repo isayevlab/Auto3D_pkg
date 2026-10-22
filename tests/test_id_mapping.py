@@ -49,7 +49,7 @@ class TestEncodeDecodeIds:
         assert "CCC 2" in content
 
     def test_encode_accepts_an_uppercase_extension(self, tmp_path):
-        """M7: a chemically valid ``mols.SMI`` must not be refused the way
+        """A chemically valid ``mols.SMI`` must not be refused the way
         an unsupported extension is; the check is case-insensitive."""
         input_file = tmp_path / "input.SMI"
         input_file.write_text("CCO mol_alpha\n")
@@ -212,7 +212,7 @@ class TestNoneMolHardening:
 
         out = decode_ids(str(sdf), {"mol_a": 0})
         # Only the valid record is written; no AttributeError on the None.
-        # N-m31: count_sdf is gone; iter_conformer_records is the
+        # count_sdf is gone; iter_conformer_records is the
         # production-equivalent reader (the same monkeypatched
         # SDMolSupplier backs this call too, like count_sdf's did).
         written = len(list(iter_conformer_records(out)))

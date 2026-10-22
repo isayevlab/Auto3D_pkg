@@ -321,7 +321,7 @@ def job_dir(tmp_path):
     The pipeline writes job folders next to its input file. Tests that share an
     input directory therefore collide under combined or randomized ordering,
     which is why the heavy end-to-end modules were excluded from CI. Copying the
-    input into a per-test directory removes the shared state (audit M31).
+    input into a per-test directory removes the shared state.
     """
     d = tmp_path / "job"
     d.mkdir()
@@ -386,7 +386,7 @@ def new_stereo_perception():
     ``_CIPCode`` property only under legacy perception, while chiral *tags* are
     set under both. Code that reads ``_CIPCode`` therefore goes stereo-blind the
     moment anything in the process -- Auto3D, a notebook, another library --
-    turns legacy perception off (finding N-M9).
+    turns legacy perception off.
     """
     previous = Chem.GetUseLegacyStereoPerception()
     Chem.SetUseLegacyStereoPerception(False)

@@ -7,10 +7,10 @@ import time
 from pathlib import Path
 
 # From the module that DEFINES it, not from `workflow_workers`, which merely
-# imports it (A-5). Importing it from there made this helper -- and so every
+# imports it. Importing it from there made this helper -- and so every
 # spawned stub worker -- pull in batch_opt/model_factory, i.e. torch and rdkit,
-# for a stdlib-only function; that is exactly the cost I1 moved the function
-# out of `workflow_workers` to avoid.
+# for a stdlib-only function; that is exactly the cost that moving the function
+# out of `workflow_workers` avoids.
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 
 

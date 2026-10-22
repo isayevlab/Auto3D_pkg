@@ -147,7 +147,7 @@ class TestModelCaching:
         assert ModelFactory.get_cache_info()["size"] == 2
 
     def test_custom_nnp_path_is_cached_and_invalidates_on_a_rewrite(self, tmp_path):
-        """P-m17: a custom-NNP path is cached by (resolved path, stamp, ...),
+        """A custom-NNP path is cached by (resolved path, stamp, ...),
         so repeated calls reuse the instance -- and a rewrite of the file on
         disk, which changes its stamp, must not hand back the stale one."""
         path = tmp_path / "tiny.pt"
@@ -160,7 +160,7 @@ class TestModelCaching:
         assert create_model(str(path), cpu) is not first
 
     def test_a_rewrite_evicts_the_stale_entry_instead_of_growing_the_cache(self, tmp_path):
-        """M1: a plain ``cache[new_key] = adapter`` would leave the OLD
+        """A plain ``cache[new_key] = adapter`` would leave the OLD
         (path, stale-stamp, ...) entry in place -- retained device memory on
         GPU until ``clear_cache()``. The rewrite must evict it, not merely
         shadow it, so the cache holds exactly one entry for this path."""
@@ -175,7 +175,7 @@ class TestModelCaching:
         assert ModelFactory.get_cache_info()["size"] == 1
 
     def test_a_same_tick_rewrite_is_still_detected_by_size(self, tmp_path, monkeypatch):
-        """M2: mtime alone can miss a rewrite inside one filesystem tick on a
+        """mtime alone can miss a rewrite inside one filesystem tick on a
         coarse clock (NFS/CIFS); pin ``st_mtime_ns`` identical across both
         calls (standing in for that coarse clock) while the rewrite itself
         genuinely changes the on-disk SIZE (a bigger parameter tensor), so
@@ -205,7 +205,7 @@ class TestModelCaching:
         assert ModelFactory.get_cache_info()["size"] == 1
 
     def test_a_double_request_does_not_touch_the_cached_fp32_instance(self):
-        """P-m16: the cache key carries dtype, so a double=True request never
+        """The cache key carries dtype, so a double=True request never
         returns (and never upcasts in place) the cached fp32 instance."""
         pytest.importorskip("torchani")
         cpu = torch.device("cpu")

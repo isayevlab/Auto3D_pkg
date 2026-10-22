@@ -126,12 +126,12 @@ class TestModelFactory:
         """Test that custom model paths are loaded correctly."""
         from Auto3D.engines.models.adapter import CustomModelAdapter
 
-        # The custom path is now cached (P-m17), keyed in part on this literal
+        # The custom path is now cached, keyed in part on this literal
         # path string; another test in this module uses the identical one, so
         # clear any stale entry before it has a chance to be returned here.
         ModelFactory.clear_cache()
         mock_exists.return_value = True
-        # The custom-path cache key reads the file's mtime (P-m17); the path
+        # The custom-path cache key reads the file's mtime; the path
         # does not really exist, so Path.stat() must be stubbed too.
         mock_stat.return_value.st_mtime_ns = 0
         mock_model = MagicMock()
@@ -261,12 +261,12 @@ class TestFactoryReturnsAdapter:
         """Factory should return CustomModelAdapter for custom model paths."""
         from Auto3D.engines.models.adapter import CustomModelAdapter
 
-        # The custom path is now cached (P-m17), keyed in part on this literal
+        # The custom path is now cached, keyed in part on this literal
         # path string; another test in this module uses the identical one, so
         # clear any stale entry before it has a chance to be returned here.
         ModelFactory.clear_cache()
         mock_exists.return_value = True
-        # The custom-path cache key reads the file's mtime (P-m17); the path
+        # The custom-path cache key reads the file's mtime; the path
         # does not really exist, so Path.stat() must be stubbed too.
         mock_stat.return_value.st_mtime_ns = 0
         mock_model = MagicMock()
@@ -434,7 +434,7 @@ class TestRemovedParameters:
 def test_the_compile_probes_own_frames_are_excluded_from_later_warnings(
     tmp_path, monkeypatch, caplog
 ):
-    """T-2: the probe IS the adapter's first forward, so it owns the first frames.
+    """The probe IS the adapter's first forward, so it owns the first frames.
 
     ``_verify_compiled_adapter`` triggers the lazy compilation itself, which means
     every frame that compilation attempts -- including one Dynamo suppresses --

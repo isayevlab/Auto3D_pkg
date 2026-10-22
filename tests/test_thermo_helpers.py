@@ -1034,8 +1034,8 @@ class TestLoadHessianModelRouting:
         name, device_arg, compile_model, _use_cache, double = calls["args"]
         # use_cache is deliberately not asserted: this test monkeypatches
         # create_model itself (see _install_fake_factory), so the real
-        # ModelFactory.create -- and its cache (custom paths included, since
-        # P-m17) -- is never reached here at all; what matters for THIS test
+        # ModelFactory.create -- and its cache (custom paths included) -- is
+        # never reached here at all; what matters for THIS test
         # is only the arguments _load_hessian_model passes through. The real
         # factory's own caching behavior, custom-path and ANI2xt/ANI2x alike,
         # is covered directly in tests/test_model_caching.py.

@@ -1,4 +1,4 @@
-"""usage.rst documents ``memory`` as the reproducibility knob and names the noise floor (N-m6)."""
+"""usage.rst documents ``memory`` as the reproducibility knob and names the noise floor."""
 
 from pathlib import Path
 

@@ -10,9 +10,22 @@ import torch
 from Auto3D.engines.models.adapter.base import BaseModelAdapter
 from Auto3D.engines.models.adapter.validation import _validate_outputs
 from Auto3D.engines.models.availability import require_aimnet
+from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+#: The two refusals ``AIMNet2Calculator._validate_species_and_charge`` raises as
+#: a plain ``ValueError``, each identified by the one phrase that states the
+#: refusal rather than the advice wrapped around it. Element coverage
+#: (``implemented_species``) and net charge (``supports_charged_systems``) go
+#: through that single validator, which ``eval`` runs before it branches on
+#: ``hessian``, so these two phrases cover both of this adapter's calculator
+#: call sites. See :meth:`AIMNet2Adapter._run_calculator`.
+_CALCULATOR_REJECTIONS = (
+    "are not in this model's implemented_species",
+    "does not support net-charged systems",
+)
 
 
 class AIMNet2Adapter(BaseModelAdapter):
@@ -135,6 +148,79 @@ class AIMNet2Adapter(BaseModelAdapter):
             )
         return data
 
+    def _run_calculator(self, data: dict, **kwargs: bool) -> dict:
+        """Call the calculator, typing its species/charge refusal on the way out.
+
+        ``AIMNet2Calculator`` refuses an atomic number outside the model's
+        ``implemented_species``, and a net charge on a model whose family
+        declares ``supports_charged_systems`` false, with a plain
+        ``builtins.ValueError``. That is not an ``Auto3DError``, so it escaped
+        Auto3D's error taxonomy and its exit codes entirely: an unhandled
+        traceback out of the very engine Auto3D's own routing had sent the user
+        to, since ``models.policy``'s ANI refusal for such a molecule names
+        AIMNET. Raising :class:`~Auto3D.foundation.exceptions.ConfigurationError`
+        gives it exit code 2 -- the code that ANI refusal already carries -- so
+        the two engines finally refuse the same input the same way on the
+        entry points that let it reach the caller (``auto3d energy``,
+        ``auto3d optimize``, ``smiles2mols``). Two others deliberately do not:
+        ``auto3d thermo``'s driver keeps and marks a failed record instead of
+        aborting, so it stays at exit 0 and the gain is a classified error in
+        its per-record warning; ``auto3d run`` and ``main`` optimize in a
+        child process and report their own ``OptimizationError`` for a chunk
+        that produced nothing, so there the gain is the typed error in that
+        chunk's log. The CHANGELOG entry states all three.
+
+        Upstream's message is preserved WHOLE rather than paraphrased: it names
+        the offending atomic numbers and the model's full supported set, and
+        that set is per registry model (``aimnet2-pd`` covers palladium, the
+        default does not), so no fixed text on this side could state it. The
+        sentence added in front names the model and says nothing about the
+        cause, because the element and the charge refusal share this validator
+        and would not share one diagnosis.
+
+        Any other ``ValueError`` is re-raised untouched -- a bare ``raise``, so
+        the same object with its traceback intact. The discrimination is by
+        message shape because that is all upstream offers: the validator raises
+        the built-in type and defines no exception class of its own. Matching
+        narrowly is the safe direction. An upstream rewording stops the
+        conversion and restores the untyped traceback, which is merely the old
+        behavior; a loose match would retype an unrelated ``ValueError`` as a
+        configuration error and misdiagnose it, which is worse than the defect.
+
+        Neither guard this class raises of its own is inside the converted
+        region. ``forward``'s ``atom_mask`` refusal runs well before this
+        method is reached, and ``_with_spin``'s ``mults`` shape check runs
+        while this call's arguments are still being built -- ``_with_spin`` is
+        an argument expression at both call sites, evaluated before the ``try``
+        below is entered.
+
+        Args:
+            data: The calculator input, already through :meth:`_with_spin`.
+            **kwargs: ``forces=True`` or ``hessian=True``, as each call site
+                sends; passed through unchanged.
+
+        Returns:
+            The calculator's output dict, exactly as returned.
+
+        Raises:
+            ConfigurationError: The calculator refused this input's elements or
+                its net charge. ``__cause__`` is upstream's ``ValueError``.
+        """
+        try:
+            # Annotated, not returned directly: `aimnet` ships no type
+            # information, so `self._calc` is `Any` and a bare return of its
+            # result would be a `no-any-return` error here rather than at the
+            # two call sites that unpack it.
+            result: dict = self._calc(data, **kwargs)
+        except ValueError as exc:
+            if not any(phrase in str(exc) for phrase in _CALCULATOR_REJECTIONS):
+                raise
+            raise ConfigurationError(
+                f"{self.model_name} cannot evaluate this input. {exc}",
+                hint_key="aimnet_rejected_input",
+            ) from exc
+        return result
+
     def analytic_hessian(
         self,
         coords: torch.Tensor,
@@ -177,7 +263,7 @@ class AIMNet2Adapter(BaseModelAdapter):
             Hessian in eV/A^2, shape ``(n_atoms, 3, n_atoms, 3)`` as aimnet
             returns it.
         """
-        result = self._calc(
+        result = self._run_calculator(
             self._with_spin({"coord": coords, "numbers": species, "charge": charges}, mults),
             hessian=True,
         )
@@ -305,7 +391,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         numbers_flat = species[mask]  # (M,)
         mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
 
-        result = self._calc(
+        result = self._run_calculator(
             self._with_spin(
                 {
                     "coord": coord_flat,

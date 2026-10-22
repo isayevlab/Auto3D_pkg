@@ -333,7 +333,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
 
         def energy_batched(self, coords, numbers, charges, atom_mask=None):
             # Energy-only: calc_spe never reads forces, so it stopped asking for
-            # them (audit M39). See tests/test_spe_energy_only.py.
+            # them. See tests/test_spe_energy_only.py.
             n = coords.shape[0]
             return torch.zeros(n, dtype=torch.float64)
 

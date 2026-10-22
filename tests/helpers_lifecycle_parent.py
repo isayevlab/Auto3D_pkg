@@ -47,7 +47,7 @@ def main() -> int:
         with wf._sigterm_raises():
             orch._run_pipeline([("c1.smi", "d1")])
     except KeyboardInterrupt:
-        # Mirror the CLI: a clean exit code, no traceback (P-M12).
+        # Mirror the CLI: a clean exit code, no traceback.
         return 130
     # SystemExit(143) from the SIGTERM handler is deliberately NOT caught: 143
     # is the right exit code for "killed by SIGTERM", and it prints nothing.

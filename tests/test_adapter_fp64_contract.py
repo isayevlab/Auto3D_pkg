@@ -74,8 +74,8 @@ class TestLoadHessianModelUpcastsThroughTheContract:
     """``_load_hessian_model`` must not reach past the adapter it was handed.
 
     ``create_model`` is monkeypatched in both tests, so no NNP is loaded and
-    torchani need not be installed. Since P-m16, ``_load_hessian_model`` no
-    longer calls ``to_double()`` itself -- it requests ``double=True`` and the
+    torchani need not be installed. ``_load_hessian_model`` no longer calls
+    ``to_double()`` itself -- it requests ``double=True`` and the
     factory calls it on the fresh instance before caching (see
     ``ModelFactory.create``); the fake below plays that factory role, so what
     is under test is still only whether the ANI branch asks for the upcast

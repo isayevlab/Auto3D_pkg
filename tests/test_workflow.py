@@ -87,7 +87,7 @@ class TestWorkflowExceptions:
         The mocked return value is a message check_valid_configuration can
         still produce via its returned `errors` list (an engine-resolution
         failure, say) -- an out-of-range gpu_idx is no longer one of those:
-        since task 15 (P-m33) it raises GPUError immediately instead, which
+        it now raises GPUError immediately instead, which
         is pinned separately in test_validation.py and test_cli_exit_codes.py.
         This test is about _validate_input's generic list-wrapping, not about
         any one specific error message.
@@ -318,7 +318,7 @@ class _InterruptingQueue:
 
 
 class TestWorkersExitQuietlyOnKeyboardInterrupt:
-    """P-M12: Ctrl-C must not print a traceback per worker.
+    """Ctrl-C must not print a traceback per worker.
 
     Both wrappers convert ``KeyboardInterrupt`` into ``SystemExit(130)``, which
     ``multiprocessing``'s ``_bootstrap`` treats as a clean exit code instead of
@@ -334,7 +334,7 @@ class TestWorkersExitQuietlyOnKeyboardInterrupt:
         from Auto3D.foundation.config import Auto3DOptions
         from tests.helpers_adapter import FakeAdapter
 
-        # The adapter is built once, before the first `queue.get()` (C-2), so
+        # The adapter is built once, before the first `queue.get()`, so
         # this in-process call would otherwise load a real AIMNet2 model just to
         # reach the interrupt the test is about.
         monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
@@ -641,7 +641,7 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
 
     # Replace the heavy Optimizer class with one that always raises, so we
     # exercise only the loop's failure isolation. `create_model` is stubbed for
-    # the same reason: since C-2 the adapter is built once before the loop, and
+    # the same reason: the adapter is built once before the loop, and
     # a real AIMNet2 load has nothing to do with per-chunk isolation.
     monkeypatch.setattr(ww, "Optimizer", _BoomOptimizing)
     monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
@@ -736,7 +736,7 @@ def test_optim_rank_wrapper_reraises_configuration_class_errors(tmp_path, monkey
 
 
 def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, monkeypatch):
-    """C-2: a model that cannot be built is not a skippable chunk.
+    """A model that cannot be built is not a skippable chunk.
 
     ``create_model`` used to run INSIDE the per-chunk ``except Exception:
     continue``, so a ``NumericalError`` from the compile probe -- or a bad
@@ -1392,7 +1392,7 @@ def test_orchestrator_input_format_single_source_of_truth(tmp_path):
 
 
 def test_validate_input_accepts_an_uppercase_extension(tmp_path):
-    """M7: the extension check is case-insensitive; a chemically valid
+    """The extension check is case-insensitive; a chemically valid
     ``mols.SMI`` must not be refused the way ``mols.xyz`` is."""
     from Auto3D.foundation.config import Auto3DOptions
     from Auto3D.orchestration.workflow import WorkflowOrchestrator
@@ -1535,7 +1535,7 @@ class TestFinalizeOutputReconciliation:
         assert orch.failures == ["mol_c"], orch.failures
 
     def test_finalize_output_sets_output_counts_from_the_reordered_records(self, tmp_path):
-        """P-m26: `_finalize_output` computes (n_molecules, n_conformers)
+        """`_finalize_output` computes (n_molecules, n_conformers)
         from the list `reorder_sdf` returns -- still-encoded names, but
         counting distinct `strip_taut_suffix`-stripped names is unaffected
         by the encode/decode relabeling, since `decode_ids` maps each
@@ -1543,15 +1543,15 @@ class TestFinalizeOutputReconciliation:
         `self.output_counts`, so `main()` can hand eager counts to
         `WorkflowResult` without re-reading the output file.
 
-        Task-M1: the eager count applies the same `.strip()` to `_Name` the
+        The eager count applies the same `.strip()` to `_Name` the
         lazy `count_output` path does (`results.py`) -- encoded id 2 appears
         once as `"2"` and once as `"2 "` (trailing whitespace); without
         `.strip()` those are two different strings and the molecule count
         would be wrong by one.
 
-        Fix round 2: `.strip()` must run BEFORE `strip_taut_suffix`, not
-        after -- the regex is end-anchored (Chem-M5), so whitespace trailing
-        a `@tautN` suffix (`"0@taut2 "`, a sixth conformer of encoded id 0)
+        `.strip()` must run BEFORE `strip_taut_suffix`, not after -- the
+        regex is end-anchored, so whitespace trailing a `@tautN` suffix
+        (`"0@taut2 "`, a sixth conformer of encoded id 0)
         would otherwise stop the suffix from being recognized at all.
         """
         from rdkit import Chem
@@ -1671,7 +1671,7 @@ def test_log_timing_reports_the_real_elapsed_time(tmp_path, monkeypatch, caplog)
 
 
 def test_finalize_output_raises_when_the_only_dollar_line_is_inside_a_property(tmp_path):
-    """N-m30: a chunk whose only `$$$$`-looking line sits inside a property
+    """A chunk whose only `$$$$`-looking line sits inside a property
     value, with no real `M  END`-terminated record anywhere in it, must not
     be mistaken for a chunk that produced a converged structure.
     `_combine_chunk_outputs` (reached through `_finalize_output`) must still
@@ -1898,8 +1898,8 @@ class TestQuietPathsNameWhatTheyDropped:
         C++ parse error, which names a file offset rather than a molecule.
         `SPE.calc_spe` and `ASE/thermo` both logged per-record for exactly this;
         this reader did not. It now reads through the same
-        `Auto3D.foundation.utils.sdf_io.iter_conformer_records` those callers use
-        (N-C1), whose unparseable-record message says "record %d", not
+        `Auto3D.foundation.utils.sdf_io.iter_conformer_records` those callers
+        use, whose unparseable-record message says "record %d", not
         "index %d" -- a wording change the record-policy unification review
         confirmed is the only effect on this path.
         """
@@ -1985,7 +1985,7 @@ class TestQuietPathsNameWhatTheyDropped:
 
 
 def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
-    """N-M8: torch.backends state is process-global and does not cross the spawn
+    """torch.backends state is process-global and does not cross the spawn
     boundary, so the worker must apply allow_tf32 itself.
 
     ``configure_torch(allow_tf32=True)`` writes up to four process-global
@@ -1995,8 +1995,7 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
     ``QueueHandler`` to both the "auto3d" and "Auto3D" logger trees. All of
     that is process-wide state that outlives this test unless it is put back,
     which is exactly what ``_restored_worker_globals`` above exists to do --
-    this test used to carry its own inline copy of that snapshot/restore block
-    (C-11).
+    this test used to carry its own inline copy of that snapshot/restore block.
     """
     import queue
 
@@ -2006,7 +2005,7 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
     from Auto3D.foundation.config import Auto3DOptions
     from tests.helpers_adapter import FakeAdapter
 
-    # Since C-2 the adapter is built before the first `queue.get()`, so even a
+    # The adapter is built before the first `queue.get()`, so even a
     # "Done"-only queue would load a real AIMNet2 model without this.
     monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
@@ -2026,7 +2025,7 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
 
 
 def test_shutdown_logging_removes_handler_and_stops_manager(tmp_path):
-    """P-M10: one handler and one SyncManager leaked per run."""
+    """One handler and one SyncManager leaked per run."""
     import logging
     import multiprocessing as mp
 
@@ -2068,7 +2067,7 @@ def _unused_sigterm_handler(signum, frame):  # pragma: no cover - never delivere
 
 
 class TestSigtermRaises:
-    """C-4/A-3: the scoped SIGTERM handler had no direct test at all.
+    """The scoped SIGTERM handler had no direct test at all.
 
     ``_run_pipeline``'s worker-termination ``finally`` is the whole point of
     turning SIGTERM into ``SystemExit``: under the default disposition the
@@ -2093,7 +2092,7 @@ class TestSigtermRaises:
         assert excinfo.value.code == EXIT_TERMINATED == 143
 
     def test_a_host_that_already_owns_sigterm_keeps_its_handler(self):
-        """A-3(a): a non-default disposition means something to somebody.
+        """A non-default disposition means something to somebody.
 
         A service supervisor draining requests, an outer CLI, a notebook
         kernel: replacing its handler for the duration of one ``main()`` is not
@@ -2114,7 +2113,7 @@ class TestSigtermRaises:
         Auto3D is a library that may well be called from someone else's worker
         thread -- so the block must yield quietly and touch nothing.
 
-        A-3(b): this is also the branch that used to be able to leave Auto3D's
+        This is also the branch that used to be able to leave Auto3D's
         own handler installed after ``run()`` returned.
         """
         from Auto3D.orchestration.workflow import _sigterm_raises
@@ -2141,7 +2140,7 @@ class TestSigtermRaises:
 class _StubbornProcess:
     """A process double that outlives its first join, like a wedged worker.
 
-    C-7: the escalation branches -- ``_shutdown_logging``'s ``terminate()`` and
+    The escalation branches -- ``_shutdown_logging``'s ``terminate()`` and
     ``_terminate_workers``' ``kill()`` -- only run when ``is_alive()`` is still
     True after a bounded join, which never happens in a test that uses a real
     (and therefore promptly exiting) process.
@@ -2174,7 +2173,7 @@ class _StubbornProcess:
 
 
 class TestWedgedChildrenAreEscalated:
-    """C-7: the terminate/kill branches, with a process that will not go."""
+    """The terminate/kill branches, with a process that will not go."""
 
     def test_shutdown_logging_terminates_a_logger_that_outlives_its_join(self, tmp_path):
         from Auto3D.foundation.config import Auto3DOptions

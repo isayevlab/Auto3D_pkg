@@ -58,7 +58,7 @@ def test_custom_eager_module_loads_and_runs(tmp_path):
     # _TinyNNP masks padding: E = sum(coords^2) over real atoms only, so
     # dE/dx = 2*coords for real atoms and 0 for the padded slot => F = -dE/dx.
     # Asserting the value, not just finiteness, is what catches a sign flip in
-    # the adapter's force path (audit M32).
+    # the adapter's force path.
     mask = (species != _TinyNNP.species_pad).unsqueeze(-1)
     expected_forces = -2.0 * coords * mask
     torch.testing.assert_close(f, expected_forces, rtol=1e-5, atol=1e-6)
