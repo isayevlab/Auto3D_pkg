@@ -10,11 +10,11 @@ them.
 
 Usage -- one command does everything::
 
-    bash benchmarks/run_perf_ab.sh v3.2.2
+    bash benchmarks/run_perf_ab.sh v3.2.3
 
 or, if you would rather git not be touched by a script::
 
-    git checkout v3.2.2   && python benchmarks/bench_optimization_perf.py --label before
+    git checkout v3.2.3   && python benchmarks/bench_optimization_perf.py --label before
     git checkout <branch> && python benchmarks/bench_optimization_perf.py --label after
     python benchmarks/bench_optimization_perf.py --compare before after
 
