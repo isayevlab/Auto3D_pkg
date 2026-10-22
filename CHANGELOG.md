@@ -69,6 +69,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `tests/test_compile_values.py`. See
   `benchmarks/results-notes/2026-10-19-mark-dynamic.md`.
 
+### Changed
+- The engine check's refusal names what the selected engine does not cover
+  instead of claiming that AIMNET covers it. A molecule with an element
+  outside the ANI training set, a nonzero net charge, or unpaired electrons
+  handed to `ANI2x`/`ANI2xt` now raises `<engine> does not cover: [...]` where
+  it read `Only AIMNET can handle: [...]`. The sentence naming those three
+  reasons a molecule needs AIMNET is unchanged, and the `main()` /
+  `smiles2mols()` input check carries it now too, so the two refusals read
+  alike. The old wording promised more than AIMNet2 delivers: every registry
+  model refuses an element outside its own supported set, which is the
+  refusal the entry above gives a type, and that model's own error names its
+  own supported set when it is reached. The exit codes, the exception type and
+  which molecules are refused are unchanged.
+
 ## [3.2.2] - 2026-10-16
 
 ### Changed

@@ -96,9 +96,9 @@ def _quantize_index_shapes(
     network now runs over a few more rows, and a float32 matrix multiply over
     a different row count is free to reduce in a different order: one to two
     float32 ULP, measured at 1.47e-06 eV against eager over the pattern set
-    -- between the two readings of the unpadded compile it replaces, and
-    three decades under the tolerance ``create_model``'s construction probe
-    applies. Reordered arithmetic, not an error term that grows.
+    -- between the two readings of the unpadded compile it replaces, and 680x
+    under the tolerance ``create_model``'s construction probe applies.
+    Reordered arithmetic, not an error term that grows.
     """
 
     def padded(

@@ -1,4 +1,7 @@
-"""compile_model=True must not change energies. Reproduces on CPU."""
+"""compile_model=True must not change energies beyond float32 reassociation.
+
+Reproduces on CPU.
+"""
 
 import itertools
 import logging
