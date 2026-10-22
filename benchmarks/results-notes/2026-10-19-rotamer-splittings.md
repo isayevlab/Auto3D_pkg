@@ -137,10 +137,10 @@ engine's *pair set* is reproducible for AIMNet2 and ANI2xt -- every distinct
 pair appears in all three repeats -- but **not for ANI2x**: salbutamol
 conformers 64 and 80 appear in repeat 1 only, at 0.296 A heavy-atom RMSD
 against the 0.300 A threshold. A pair that close to the threshold crosses it on
-the optimizer's own noise, so for ANI2x some counts below are "3 or 4" rather
-than one number. That is also why the per-repeat quartiles in the record agree
-to the fourth decimal for AIMNet2 and ANI2xt and not for ANI2x, whose lower
-quartile reads 0.0752 / 0.0625 / 0.0752 eV.
+the optimizer's own noise, so for ANI2x some counts below are given as a
+range rather than one number. That is also why the per-repeat quartiles in
+the record agree to the fourth decimal for AIMNet2 and ANI2xt and not for
+ANI2x, whose lower quartile reads 0.0752 / 0.0625 / 0.0752 eV.
 
 **How many pairs each window would merge, on two cuts.** The left cut is every
 distinct pair; the right is the subset whose polar hydrogens actually moved to

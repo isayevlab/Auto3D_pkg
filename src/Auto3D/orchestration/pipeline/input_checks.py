@@ -174,9 +174,10 @@ def check_input(args: Any) -> None:
         if optimizing_engine in {"ANI2x", "ANI2xt"}:
             raise ConfigurationError(
                 f"{optimizing_engine} does not cover: {only_aimnet_smiles}. A "
-                "molecule requires AIMNET if it has an element outside the ANI "
-                "training set, a nonzero net charge, or unpaired (radical) "
-                "electrons."
+                "molecule requires AIMNET or your own NNP if it has an element "
+                "outside the ANI training set, a nonzero net charge, or "
+                "unpaired (radical) electrons.",
+                hint_key="aimnet_rejected_input",
             )
 
 
