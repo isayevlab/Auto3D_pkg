@@ -173,7 +173,10 @@ def check_input(args: Any) -> None:
         optimizing_engine = args.optimizing_engine
         if optimizing_engine in {"ANI2x", "ANI2xt"}:
             raise ConfigurationError(
-                f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D."
+                f"{optimizing_engine} does not cover: {only_aimnet_smiles}. A "
+                "molecule requires AIMNET if it has an element outside the ANI "
+                "training set, a nonzero net charge, or unpaired (radical) "
+                "electrons."
             )
 
 
@@ -322,7 +325,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             #
             # Not folded into the engine question: atomic number 0 is outside
             # ANI_ELEMENTS, so counting this record would make check_input raise
-            # "Only AIMNET can handle: [...]" for an ANI run, the opposite of
+            # "ANI2xt does not cover: [...]" for an ANI run, the opposite of
             # the dummy-atom contract (warned about and skipped, never fatal), and it
             # must not decide anything on behalf of the records that stay.
             #

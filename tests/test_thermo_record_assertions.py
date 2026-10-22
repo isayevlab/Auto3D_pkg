@@ -260,7 +260,7 @@ def test_calc_thermo_does_not_refuse_a_file_under_ani_for_a_dummy_record(
     out = tmp_path / "out.sdf"
 
     with caplog.at_level(logging.WARNING, logger="Auto3D"):
-        # Must not raise ConfigurationError("Only AIMNET can handle: ['frag']").
+        # Must not raise ConfigurationError("ANI2xt does not cover: ['frag']").
         thermo_mod.calc_thermo(str(sdf), "ANI2xt", use_gpu=False, out_path=str(out))
 
     results = list(Chem.SDMolSupplier(str(out), removeHs=False))

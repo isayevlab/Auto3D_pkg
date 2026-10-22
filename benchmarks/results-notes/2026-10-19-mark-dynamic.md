@@ -224,7 +224,7 @@ the comparison that matters: the padding adds no disagreement the compile did
 not already have. In absolute terms it is 6803x below
 `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV) and 1429x below this engine's own
 measured run-to-run spread (2.10e-03 eV,
-`benchmarks/results-notes/2026-10-16-batch-noise.md`), and three decades under
+`benchmarks/results-notes/2026-10-16-batch-noise.md`), and 680x under
 `COMPILE_PROBE_TOLERANCE_EV` (1e-3 eV), the gate `create_model` already
 applies at construction.
 

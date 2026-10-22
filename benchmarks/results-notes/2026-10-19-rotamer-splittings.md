@@ -154,7 +154,7 @@ what the criterion fails to protect.
 |---|---|---|---|---|---|
 | AIMNet2 | 0.050 eV (1.15 kcal/mol, 1.9 kT) | 6 of 12 | 6 of 12 | 1 of 12 | 1 of 12 |
 | ANI2xt | 0.011 eV (0.25 kcal/mol, 0.4 kT) | 4 of 11 | 3 of 10 | 3 of 11 | 2 of 10 |
-| ANI2x | 0.098 eV (2.26 kcal/mol, 3.8 kT) | 5 of 13 | 3 or 4 of 12 | 2 of 13 | 1 of 12 |
+| ANI2x | 0.098 eV (2.26 kcal/mol, 3.8 kT) | 4 or 5 of 13 | 3 or 4 of 12 | 2 of 13 | 1 of 12 |
 
 Every count above holds in each of the three repeats separately, except
 ANI2x's below-the-window counts, which read 4/5/4 (all pairs) and 3/4/3 (rotor

@@ -179,8 +179,8 @@ class TestCheckInputExceptions:
         args.path = str(smi_file)
         args.enumerate_isomers = False
 
-        # ANI2x can't handle charged molecules, only AIMNET can
-        with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
+        # ANI2x does not cover charged molecules; the gate must say so
+        with pytest.raises(ConfigurationError, match="does not cover"):
             check_input(args)
 
     def test_only_aimnet_molecules_with_ani2xt_raises_configuration_error(
@@ -211,8 +211,8 @@ class TestCheckInputExceptions:
         args.path = str(smi_file)
         args.enumerate_isomers = False
 
-        # ANI2xt can't handle Br, only AIMNET can
-        with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
+        # ANI2xt does not cover Br; the gate must say so
+        with pytest.raises(ConfigurationError, match="does not cover"):
             check_input(args)
 
     def test_check_input_accepts_registry_engine(self, tmp_path):
@@ -431,7 +431,7 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         assert "frag" in warnings_seen[0].getMessage()
         # The dummy record must not also drive the engine gate: atomic number 0
         # is outside ANI_ELEMENTS, so counting it would make check_input raise
-        # "Only AIMNET can handle: ['*CCO']" for an ANI run instead of warning
+        # "ANI2xt does not cover: ['*CCO']" for an ANI run instead of warning
         # and skipping, which is the opposite of this task's contract.
         assert ANI is True
         assert only_aimnet == []
@@ -495,7 +495,7 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         # The same predicate decides the announcement and the engine question,
         # so the flat record must be kept out of the latter too: atomic number
         # 0 is outside ANI_ELEMENTS, and counting it would make an ANI run
-        # raise "Only AIMNET can handle: [...]" instead of warning and skipping.
+        # raise "ANI2xt does not cover: [...]" instead of warning and skipping.
         assert ANI is True and only_aimnet_ids == []
 
     def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):

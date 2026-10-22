@@ -324,10 +324,9 @@ def check_engine_supports_molecules(
     ]
     if incompatible:
         raise ConfigurationError(
-            f"Only AIMNET can handle: {incompatible}, but {optimizing_engine} was "
-            "parsed to Auto3D. A molecule requires AIMNET if it has an element "
-            "outside the ANI training set, a nonzero net charge, or unpaired "
-            "(radical) electrons."
+            f"{optimizing_engine} does not cover: {incompatible}. A molecule "
+            "requires AIMNET if it has an element outside the ANI training set, "
+            "a nonzero net charge, or unpaired (radical) electrons."
         )
 
     # Every molecule here passed requires_aimnet (net charge zero, in-set
