@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   There is still no up-front element check for AIMNet2 on any of these paths:
   the refusal arrives at the first forward pass, not at startup.
+- The `ConfigurationError` that `ANI2x`/`ANI2xt` raise for a molecule they do
+  not cover (`<engine> does not cover: [...]`) now resolves to the same
+  `aimnet_rejected_input` hint the AIMNet2 adapter's own refusal above
+  already carries -- "Choose another model with --engine; `auto3d models
+  list` shows what is available." -- instead of falling through to
+  `ConfigurationError`'s generic class hint ("Run `auto3d config init` to
+  generate a valid config file"), which has nothing to do with an
+  unsupported element, charge, or radical. The message itself now also names
+  "AIMNET or your own NNP" rather than "AIMNET" alone: a custom NNP bypasses
+  this check the same way AIMNET does, and the suggestion right above the
+  raise in `auto3d run`'s own input check already says so.
 - `AUTO3D_COMPILE_MODEL=1` (`compile_model=True`) now keeps ANI2xt compiled
   for a whole run. Each distinct combination of which of ANI2xt's seven
   elements a batch contains leaves some per-element row-index tensors empty
@@ -74,14 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of claiming that AIMNET covers it. A molecule with an element
   outside the ANI training set, a nonzero net charge, or unpaired electrons
   handed to `ANI2x`/`ANI2xt` now raises `<engine> does not cover: [...]` where
-  it read `Only AIMNET can handle: [...]`. The sentence naming those three
-  reasons a molecule needs AIMNET is unchanged, and the `main()` /
-  `smiles2mols()` input check carries it now too, so the two refusals read
+  it read `Only AIMNET can handle: [...]`. The `main()` / `smiles2mols()`
+  input check carries the same refusal now too, so the two refusals read
   alike. The old wording promised more than AIMNet2 delivers: every registry
   model refuses an element outside its own supported set, which is the
   refusal the entry above gives a type, and that model's own error names its
-  own supported set when it is reached. The exit codes, the exception type and
-  which molecules are refused are unchanged.
+  own supported set when it is reached. The exit codes, the exception type
+  and which molecules are refused are unchanged.
 
 ## [3.2.2] - 2026-10-16
 
