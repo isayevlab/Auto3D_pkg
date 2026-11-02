@@ -124,18 +124,93 @@ jobs:
       - name: ANI2xt still constructs (bundled weights, no download)
         run: pytest "tests/test_model_factory.py" -q -k "ani2xt"
 
-  slow:
-    name: slow tests (NNP integration)
+  slow-shards:
+    name: slow shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
+    # The slow tier set the critical path of all 8 runs measured across two
+    # weeks, PR and scheduled alike: a median 505 s against 207 s for the
+    # runner-up, with `pytest -m slow` itself 81% of the job. The time is
+    # spread evenly inside each heavy file, so there was no single test to
+    # speed up -- four shards on four runners take the tier to roughly 235 s,
+    # which is then what the whole run costs.
+    #
+    # Sharding across jobs rather than with xdist inside one job is the point,
+    # not an accident. Each shard gets its own runner and its own filesystem,
+    # so the modules that still write job directories into tests/files/ cannot
+    # interfere with anything; and the end-to-end tests fork worker processes
+    # of their own, which on 4 vCPUs would be competing with xdist workers for
+    # the same cores and could turn a timing test into a flake.
+    #
+    # Shard names must stay distinct from each other. publish.yml's release
+    # gate reduces a commit's check runs with
+    # `group_by(.name) | map(max_by(.completed_at))`, so legs sharing one name
+    # would collapse to whichever finished last and a red shard could be
+    # masked by a green one. The protected name lives on the single `slow`
+    # check below instead.
+    #
     # These tests are NNP inference on CPU, so their wall time tracks whatever
     # share of the runner we get. Three consecutive runs of the same commit
-    # took 6m21s, 17m57s and 6m52s: the middle one exceeded the old 20-minute
-    # ceiling and was canceled *after* all 58 tests had passed, reporting a
-    # red slow tier for code that was fine. A job that fails on runner luck
-    # teaches people to ignore it, which is worse than a job that is slow.
-    # 45 gives roughly 2.5x headroom over the worst observed run while still
-    # catching a genuine hang.
-    timeout-minutes: 45
+    # took 6m21s, 17m57s and 6m52s for the whole tier: the middle one exceeded
+    # the old 20-minute ceiling and was canceled *after* every test had passed,
+    # reporting a red slow tier for code that was fine. A job that fails on
+    # runner luck teaches people to ignore it, which is worse than a job that
+    # is slow. For the whole tier, 45 minutes was about 5x its median and 2.5x
+    # that worst observed run. A shard is a quarter of the tests plus the same
+    # fixed ~100 s of setup, install and model warm, so 20 minutes holds both
+    # of those ratios rather than tightening them.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Two lists that have to move in lockstep: `select` names the files a
+      # shard runs, and the last leg takes `tests/` minus exactly those files.
+      # The asymmetry is the thing to remember -- a file named in a shard but
+      # left out of the ignore list merely runs twice, while a file in the
+      # ignore list that no shard names runs *never*, silently. Adding a slow
+      # test to a file that appears in neither list needs no change here at
+      # all: the catch-all picks it up. Re-balance when the catch-all grows
+      # past the heaviest named shard; the medians below are what the split is
+      # fitted to.
+      matrix:
+        include:
+          # 120 s of tests, the heaviest file in the tier.
+          - shard: "1 of 4 (end-to-end pipeline)"
+            group: pipeline-e2e
+            select: tests/test_pipeline_e2e.py
+          # 93 s. Deliberately not with the file above: those two alone are
+          # 53% of the tier, so they have to land on different runners. Safe to
+          # isolate because test_auto3D.py runs every pipeline test through the
+          # job_dir/isolated_input fixtures, so it writes no job directories or
+          # output SDFs into tests/files/ -- the reason the tier stopped being
+          # limited to three files in the first place.
+          - shard: "2 of 4 (main and smiles2mols)"
+            group: auto3d
+            select: tests/test_auto3D.py
+          # 41 + 33 + 28 = 102 s, the three next-heaviest files. test_thermo.py
+          # stages its opt_geometry inputs in tmp_path, so it is isolable for
+          # the same reason test_auto3D.py is.
+          - shard: "3 of 4 (workers, compile, thermo)"
+            group: workers-thermo
+            select: tests/test_worker_lifecycle.py tests/test_compile_values.py tests/test_thermo.py
+          # The other 22 files, about 85 s, plus anything added later.
+          #
+          # test_SPE.py, test_isomer_engine.py and test_tauto.py all live here,
+          # in the order a full run gives them. They are the three modules that
+          # still write job directories into tests/files/ rather than going
+          # through the job_dir/isolated_input fixtures, so what protects them
+          # is main()'s microsecond-resolution job naming, serial execution and
+          # the autouse GPU-teardown fixture the `slow` marker applies --
+          # assessed at 70-80% confidence, not guaranteed. One shard, same
+          # order, so that is unchanged; separate shards would also be safe
+          # from each other, but there is no reason to find out.
+          - shard: "4 of 4 (everything else)"
+            group: rest
+            select: >-
+              tests/
+              --ignore=tests/test_pipeline_e2e.py
+              --ignore=tests/test_auto3D.py
+              --ignore=tests/test_worker_lifecycle.py
+              --ignore=tests/test_compile_values.py
+              --ignore=tests/test_thermo.py
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -148,7 +223,8 @@ jobs:
         with:
           # AIMNet2 weights download to ~/.cache/aimnet; torchani/torch.hub
           # weights (ANI2x) land in ~/.cache/torch. Cache both so the slow
-          # suite does not re-download on every run.
+          # suite does not re-download on every run. Every shard restores the
+          # same 31 MB entry, which is a cache hit and no network.
           path: |
             ~/.cache/aimnet
             ~/.cache/torch
@@ -162,6 +238,21 @@ jobs:
           # ase for thermo, ani for the torchani-gated slow tests, dev for
           # pytest and for nbmake, used by the notebook step below
           pip install -e ".[ase,ani,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: The shard selections still partition the slow tier
+        # The matrix above is two lists that have to agree, and the dangerous
+        # direction is silent: a file in the catch-all's ignore list that no
+        # shard names runs *never*, with no job failing and no count looking
+        # wrong. A comment cannot enforce that, so this re-derives the
+        # partition from collection alone -- it runs no tests, costs about 30 s
+        # of imports, and reads the shard arguments out of this file, so the
+        # check cannot drift from the matrix it checks.
+        #
+        # Before the model warm and the test run, so a broken selection
+        # reports in half a minute instead of behind a suite. On the catch-all
+        # leg only: every leg would compute the same answer, and this is the
+        # leg that owns the ignore list.
+        if: matrix.group == 'rest'
+        run: python .github/scripts/assert_slow_shards_partition.py
       - name: Warm the AIMNet2 model cache (hard failure if unreachable)
         # An unavailable gate must never be reportable as a passing gate. If the
         # registry or network is down, fail here loudly rather than letting the
@@ -188,23 +279,22 @@ jobs:
             sleep $((attempt * 20))
           done
       - name: Run slow NNP + pipeline tests
-        # Previously limited to three files because the heavy end-to-end modules
-        # were flaky under combined ordering. test_auto3D.py now runs every
-        # pipeline test through the job_dir/isolated_input fixtures and
-        # test_thermo.py stages its opt_geometry inputs in tmp_path, so those
-        # two no longer write job directories or output SDFs into
-        # tests/files/. The remaining three (test_SPE.py, test_isomer_engine.py,
-        # test_tauto.py) still do not use the fixtures, so for them the
-        # protection is unchanged: main()'s microsecond-resolution job naming,
-        # strictly serial CI execution, and the autouse GPU-teardown fixture
-        # applied via the `slow` marker -- assessed at 70-80% confidence, not
-        # guaranteed (audit M31).
-        run: >
-          pytest tests/ -m slow -q
+        # matrix.select expands unquoted on purpose: it is one or more paths,
+        # plus the catch-all leg's --ignore flags, and the shell has to word
+        # split it into pytest arguments. Every value is a literal written
+        # above. Explicit paths also override `testpaths`, which is why a
+        # targeted shard collects in a fraction of a second.
+        #
+        # A shard whose files were all renamed away would collect nothing;
+        # pytest exits 5 for that and nothing here suppresses it, so such a
+        # shard reports red rather than passing empty.
+        run: pytest ${{ matrix.select }} -m slow -q
 
       # Executes one notebook for real. Here rather than in the docs workflow
       # because every one of the 20 needs a neural network potential, and this
-      # is the only job with the model cache and the `ani` extra.
+      # is the only job with the model cache and the `ani` extra. On the
+      # catch-all shard only -- it is the lightest one, and the notebook is
+      # three seconds of signal that does not need running four times.
       #
       # One, and the selection was measured on a CPU box with CUDA hidden --
       # which is what a runner is -- rather than on a machine with a GPU. The
@@ -225,8 +315,42 @@ jobs:
       # tests/test_notebook_properties.py remains the only thing covering all
       # 20 -- and it catches a wrong SD property name, not a wrong call.
       - name: Execute the single-point notebook
+        if: matrix.group == 'rest'
         run: |
           pytest --nbmake --nbmake-timeout=600 example/single_point_energy.ipynb
+
+  slow:
+    # The protected name, and the whole reason this job exists. Branch
+    # protection on main requires a check named exactly "slow tests (NNP
+    # integration)" and publish.yml's release gate looks for the same string on
+    # the tagged commit, so the name cannot move onto the shards -- and must
+    # not be duplicated across them either, per the note on the matrix above.
+    # This job runs no tests. It carries the name, as one check run, and
+    # refuses to be green unless every shard was.
+    name: slow tests (NNP integration)
+    needs: slow-shards
+    # Required, not defensive: without it the gate is skipped whenever a shard
+    # fails, and a skipped required check never reports at all -- branch
+    # protection would sit waiting for a verdict that is not coming instead of
+    # showing the failure.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every slow shard succeeded
+        # `needs.<matrix job>.result` is the aggregate over all legs: `success`
+        # only when every one of them succeeded, `failure` when any failed, and
+        # `cancelled` or `skipped` when they did not run. Everything other than
+        # `success` is red here, because a shard that did not run is not a
+        # shard that passed.
+        env:
+          SHARDS: ${{ needs.slow-shards.result }}
+        run: |
+          echo "slow shards: $SHARDS"
+          if [ "$SHARDS" != "success" ]; then
+            echo "::error::the slow tier did not pass: shards concluded '$SHARDS'"
+            exit 1
+          fi
 
   lint:
     name: ruff
