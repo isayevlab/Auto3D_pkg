@@ -119,12 +119,15 @@ jobs:
         #
         # --durations=15 earns its log lines, because this set has to be
         # curated by hand and the cost of a candidate cannot be guessed from a
-        # developer box: the most expensive test here is 19 s on a runner and
-        # 2 s on a 128-core desktop, and the smoke set's second most expensive
-        # is 7 s on a runner and 90 ms inside a full-suite run, where an
-        # earlier test had already paid its import. Printing the real numbers
-        # every time is what keeps "is this still worth keeping" answerable
-        # without repeating the whole measurement.
+        # developer box. Two ways that goes wrong, both measured: the most
+        # expensive test here is 19 s on a runner and 2 s on a 128-core
+        # desktop, and the second most expensive is 6 s on a runner and well
+        # under a second inside a full-suite run, where an earlier test had
+        # already paid the import it is really charged for. Thinning the set
+        # re-attributes every fixed cost like that, so the only durations worth
+        # trusting are the ones this step prints. Printing them every time is
+        # what keeps "is this still worth keeping" answerable without
+        # repeating the whole measurement.
         run: pytest tests/ -q -m "not slow" --continue-on-collection-errors --durations=15
 
       # Here rather than in `lint`, because this job is the only one that
