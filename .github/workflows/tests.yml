@@ -78,8 +78,10 @@ jobs:
         # uv rather than pip, now on every job that installs this project --
         # the legs here, `no-aimnet`, the slow shards, and both documentation
         # jobs. pip against a warm 627 MB HTTP cache took 50-86 s per job; uv
-        # with no cache at all takes well under a fifth of that, because it
-        # resolves once and downloads and unpacks in parallel. The heavy jobs
+        # with no cache at all takes 5-10 s, because it resolves once and
+        # downloads and unpacks in parallel -- built head to head in one
+        # runner, the same environment took 81-90 s with pip and 9-10 s with
+        # uv, and no job's install is now its largest step. The heavy jobs
         # are where that is worth having: the slow tier's install was 63-78 s a
         # shard and `no-aimnet`'s 86 s, each of them longer than a whole fast
         # leg now takes, and the slow tier is what the run's gate waits on.
