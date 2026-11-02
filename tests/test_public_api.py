@@ -11,6 +11,14 @@ from pathlib import Path
 
 import pytest
 
+# The public-API pin, kept whole on the pull-request path. It is what notices
+# that a name in `docs/source/api.rst` stopped resolving, that
+# `generate_conformers` stopped being `main`, or that the consumer half of the
+# adapter contract changed shape -- the breaks a layer rename causes, which are
+# invisible to every other test here because they are import-time, not
+# behavioral. It reports no measurable duration on either leg.
+pytestmark = pytest.mark.smoke
+
 
 def test_all_public_names_resolve():
     """Every name in ``Auto3D.__all__`` must resolve to a callable/class.

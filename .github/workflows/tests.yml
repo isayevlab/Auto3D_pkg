@@ -3,12 +3,25 @@ name: Tests
 on:
   pull_request:
   schedule:
-    # Weekly on main: the full interpreter matrix, the slow tier and the
-    # model-weight cache refresh. Pull requests run the gates below on every
-    # push; a merge commit is not run again because branch protection requires
-    # the branch to be up to date, so the tree that merges is the tree that was
-    # tested (41 of 41 merge commits over 55 days had the PR head's tree).
-    - cron: '23 5 * * 1'
+    # Monthly on main: the full interpreter matrix, the slow tier and mypy.
+    # Pull requests run the gates below on every push; a merge commit is not run
+    # again because branch protection requires the branch to be up to date, so
+    # the tree that merges is the tree that was tested (41 of 41 merge commits
+    # over 55 days had the PR head's tree).
+    #
+    # This cron used to be weekly, and it also served a second purpose that it
+    # no longer can: refreshing the model-weight cache inside the 7-day window
+    # GitHub evicts unused entries in. That job is now cache-keepalive.yml,
+    # which does only that and takes seconds. Moving this one to monthly
+    # without that workflow in place would make the first pull request after a
+    # quiet week pay a cold AIMNet2 download.
+    #
+    # What a pull request no longer covers, and therefore waits up to a month
+    # for: the 3.13 legs, the no-torchani leg at 3.12, and mypy. The two
+    # per-pull-request legs still run 3.11 without torchani and 3.12 with it,
+    # but only over the smoke set; everything else is checked once, at 3.12
+    # with torchani, in the slow tier.
+    - cron: '23 5 1 * *'
   workflow_dispatch:
 
 permissions:
@@ -41,29 +54,81 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          # No `cache: pip` here, unlike every other job in this file: the
+          # install below is uv, which does not read pip's HTTP cache, so
+          # restoring that 627 MB blob would cost about 5 s of this job's setup
+          # to feed a tool that never looks at it. The 3.12 entry is still
+          # written by the jobs that do use pip (`no-aimnet`, `slow-shards`,
+          # and the documentation workflow), so nothing else loses its cache.
       - name: Install
         # The runners have no GPU, and every test runs on CPU or monkeypatches
         # torch.cuda. The default wheel brings the CUDA 13 build: torch at
         # 555 MB, about 1.9 GB of nvidia_* wheels and triton at 248 MB, fetched
         # by every job that installs torch. With PyTorch's CPU wheel index as an
-        # extra index, pip ranks the `+cpu` build of a release above the plain
-        # one, so whichever torch version the resolution lands on (torchani caps
-        # it below the newest) arrives as the CPU build; each install dropped
-        # from 92-149 s to 76-94 s on this change's first run, with a cold pip
-        # cache. One project install, not one per extra: installing `[ani]`
-        # after `[ase,dev]` made pip replace a working torch because of that
-        # cap, 45 s and 0.9 GB per run to end where one resolution ends.
+        # extra index, the `+cpu` build of a release outranks the plain one, so
+        # whichever torch version the resolution lands on (torchani caps it
+        # below the newest) arrives as the CPU build; each install dropped from
+        # 92-149 s to 76-94 s when that index was added. One project install,
+        # not one per extra: installing `[ani]` after `[ase,dev]` made the
+        # resolver replace a working torch because of that cap, 45 s and 0.9 GB
+        # per run to end where one resolution ends.
+        #
+        # uv rather than pip, and on these two legs only. pip against a warm
+        # 627 MB HTTP cache took 55-81 s across the five jobs; uv with no cache
+        # at all took 47 s, because it resolves once and downloads and unpacks
+        # in parallel. `pip install uv` keeps the install to tools already
+        # trusted here -- a marketplace action would be one more thing to pin by
+        # SHA and keep in Dependabot's scope for a 3 s saving.
+        #
+        # `--index-strategy unsafe-best-match` is load-bearing, not tuning:
+        # uv's default stops at the first index that has a package at all, and
+        # the PyTorch index carries a `requests` (2.28.1) far below this
+        # project's floor, so the default resolves nothing and the install
+        # fails outright. The flag makes uv consider every version on every
+        # index -- which is exactly the posture `pip --extra-index-url` has had
+        # here all along, so it is not a regression, but the name is a warning
+        # rather than decoration and the alternative (pinning the CPU index to
+        # torch alone in pyproject.toml) would hand contributors on GPU boxes a
+        # CPU torch.
+        #
+        # The resolution is unchanged, checked rather than assumed: uv and pip
+        # both land on torch 2.13.0+cpu and torchani 2.9.0, with no `nvidia_*`
+        # and no `triton`, and a freeze of each environment differs in nothing.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[${{ matrix.extras }}]" --extra-index-url https://download.pytorch.org/whl/cpu
+          # No `pip install --upgrade pip` first: the only thing pip installs
+          # here is uv, which the bundled pip handles, and the self-upgrade was
+          # 4-5 s of the step it used to open.
+          pip install uv
+          # --system because there is no virtual environment on a runner and uv
+          # refuses to touch an interpreter it was not pointed at; this is the
+          # setup-python interpreter the steps below will run.
+          uv pip install --system --index-strategy unsafe-best-match \
+            -e ".[${{ matrix.extras }}]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Verify every test module imports
         # --continue-on-collection-errors on the fast run hides a module that
         # fails to import, so assert collection cleanliness separately.
         run: pytest tests/ --collect-only -q
-      - name: Run fast tests
-        run: pytest tests/ -q -m "not slow" --continue-on-collection-errors
+      - name: Run the smoke set
+        # `-m "not slow"` is the smoke set: tests/conftest.py marks everything
+        # without `@pytest.mark.smoke` as slow, so this selects the roughly 115
+        # tests that are allowed on the pull-request path and the other ~2340
+        # run in the slow tier. tests/conftest.py explains what that costs; the
+        # short version is that a non-smoke regression is still caught on every
+        # pull request, but at 3.12-with-torchani only rather than on both legs.
+        #
+        # --durations=15 earns its log lines, because this set has to be
+        # curated by hand and the cost of a candidate cannot be guessed from a
+        # developer box. Two ways that goes wrong, both measured: the most
+        # expensive test here is 19 s on a runner and 2 s on a 128-core
+        # desktop, and the second most expensive is 6 s on a runner and well
+        # under a second inside a full-suite run, where an earlier test had
+        # already paid the import it is really charged for. Thinning the set
+        # re-attributes every fixed cost like that, so the only durations worth
+        # trusting are the ones this step prints. Printing them every time is
+        # what keeps "is this still worth keeping" answerable without
+        # repeating the whole measurement.
+        run: pytest tests/ -q -m "not slow" --continue-on-collection-errors --durations=15
 
       # Here rather than in `lint`, because this job is the only one that
       # installs the dependencies. mypy resolves a third-party import to `Any`
@@ -72,13 +137,21 @@ jobs:
       # the extras present reports 66, and the 26 it missed are precisely the
       # ones a type checker is worth having here for.
       #
-      # Only on the `ani` leg: three near-identical reports are noise, and this
-      # is the leg with the most complete type information. Running it under
-      # 3.12 does not weaken the floor -- `python_version = "3.11"` in
-      # pyproject.toml is what decides the semantics checked, not the
-      # interpreter.
+      # Only on the `ani` leg: near-identical reports are noise, and this is the
+      # leg with the most complete type information. Running it under 3.12 does
+      # not weaken the floor -- `python_version = "3.11"` in pyproject.toml is
+      # what decides the semantics checked, not the interpreter.
+      #
+      # Not on pull requests. The step ends in `|| true`, so it has never been
+      # able to fail one; what it produced was a count against a known backlog,
+      # on a path where 20 s is a sixth of the leg's budget. The signal is only
+      # worth having when somebody is going to read it, which is when the
+      # backlog is worked on -- so it stays on the weekly run and on manual
+      # dispatch, where nothing is waiting on the answer. Flipping `|| true`
+      # off is still what gates moving it back: a step that can fail a pull
+      # request belongs on a pull request.
       - name: mypy (non-blocking until type debt is cleared)
-        if: matrix.ani
+        if: matrix.ani && github.event_name != 'pull_request'
         run: mypy src/Auto3D/ || true
 
   no-aimnet:

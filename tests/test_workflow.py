@@ -1738,6 +1738,9 @@ def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch,
     assert getattr(result, "failures", None) == ["mol_c"]
 
 
+# `smiles2mols`. The real end-to-end calls need a neural network potential and
+# live in the slow tier; this is the accounting path with the engine stubbed.
+@pytest.mark.smoke
 def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatch, caplog):
     """smiles2mols must reconcile its SMILES input against what it produced,
     the same way main()/_finalize_output do, and the report must name the

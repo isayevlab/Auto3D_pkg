@@ -339,6 +339,9 @@ def test_the_new_name_wins_when_both_old_and_new_are_passed():
     assert config.isomer_threads == 9
 
 
+# Config validation, half two: exactly one of `k` and `window` is required, with
+# both the "neither" and the "both" wording pinned in one test.
+@pytest.mark.smoke
 def test_require_selector_rejects_neither_and_both_with_one_wording_each():
     """One ``require_selector`` is the single raise site for the
     missing-selector error; every entry point (CLI, YAML validation, Python

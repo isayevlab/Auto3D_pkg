@@ -104,6 +104,13 @@ print(json.dumps({
 }))
 """ % {"leaks": LEAK_CANDIDATES}
 
+# The import-boundary guards, kept whole. They are the only thing that catches
+# the foundation layer growing a torch import, or the CLI pulling in rdkit at
+# import time -- layout breaks that no behavioral test sees, since the code
+# still works, just slower and with the dependency direction inverted.
+# 1.3 s on 3.11, 1.0 s on 3.12.
+pytestmark = pytest.mark.smoke
+
 
 @pytest.fixture(scope="module")
 def bare_import():

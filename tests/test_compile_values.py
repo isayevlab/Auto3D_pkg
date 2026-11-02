@@ -193,6 +193,8 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
         torch._dynamo.reset()
 
 
+# The other half of the same guard, and nearly free.
+@pytest.mark.smoke
 def test_ani2x_adapter_compile_hook_returns_model_unchanged(caplog):
     from Auto3D.engines.models.adapter import ANI2xAdapter
 
@@ -213,6 +215,8 @@ def test_ani2x_compile_request_warns_and_runs_eager(caplog):
     assert any("ANI2x" in r.message and "compile" in r.message.lower() for r in caplog.records)
 
 
+# The factory-level refusal, also nearly free.
+@pytest.mark.smoke
 def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monkeypatch):
     """A compile that silently changes the numbers must not reach the optimizer."""
     pytest.importorskip("torchani")
@@ -222,6 +226,13 @@ def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monke
         create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
 
 
+# Stays on the pull-request path by explicit decision, and it is by far the most
+# expensive thing on it: 12.2 s on the 3.11 leg and 19.0 s on 3.12, which is the
+# whole smoke budget in one class. It is kept anyway because it guards the
+# compiled-versus-eager agreement of the `torch.compile` path shipped in 3.2.3 --
+# the newest runtime change in the tree, and the one whose failure mode is wrong
+# numbers rather than an exception.
+@pytest.mark.smoke
 class TestCustomNnpProbeSeam:
     """The custom-NNP branch of the factory runs the same probe.
 

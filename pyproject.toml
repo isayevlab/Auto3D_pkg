@@ -254,6 +254,10 @@ python_functions = "test_*"
 addopts = "-v --tb=short -m 'not slow' --strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    # The pull-request allowlist. `--strict-markers` is on, so this entry is
+    # what lets a test opt into the fast legs at all; tests/conftest.py's
+    # pytest_itemcollected hook marks everything without it `slow`.
+    "smoke: runs on the two per-pull-request pytest legs (see tests/conftest.py)",
     "timeout: per-test wall-clock limit (pytest-timeout)",
 ]
 filterwarnings = [

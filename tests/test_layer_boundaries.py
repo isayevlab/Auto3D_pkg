@@ -94,6 +94,11 @@ UPWARD_EXEMPTIONS: dict[tuple[str, str], str] = {}
 #: the exemption as stale on the next run.
 CYCLE_EXEMPTIONS: dict[tuple[str, str], str] = {}
 
+# The layer guards, kept whole, for the same reason as the import boundaries
+# above: a cycle between two packages is a structural break that behaves
+# correctly right up until it does not. 0.5 s / 0.4 s.
+pytestmark = pytest.mark.smoke
+
 
 def _module_name(path: pathlib.Path) -> str:
     parts = list(path.relative_to(SRC).with_suffix("").parts)

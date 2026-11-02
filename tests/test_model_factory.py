@@ -232,6 +232,13 @@ class TestFactoryReturnsAdapter:
         assert isinstance(model, AIMNet2Adapter)
         assert model.model_name == "aimnet2"
 
+    # Not a judgment call either: the `no-aimnet` job's last step is
+    # `pytest tests/test_model_factory.py -q -k ani2xt` under the default
+    # addopts, and this is the only non-slow test that selection matches.
+    # Without `smoke` the step collects nothing, exits 5 and reddens a required
+    # check. It also happens to be the right representative -- ANI2xt's bundled
+    # weights are the one model that loads with no network and no aimnet.
+    @pytest.mark.smoke
     def test_factory_returns_ani2xt_adapter(self):
         """Factory should return ANI2xtAdapter for ANI2xt."""
         pytest.importorskip("torchani")

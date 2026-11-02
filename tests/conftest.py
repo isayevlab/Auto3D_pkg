@@ -20,6 +20,46 @@ TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
 
 
+def pytest_itemcollected(item):
+    """Everything that is not marked ``smoke`` is ``slow``.
+
+    What a pull request's two ``pytest`` legs run is an **allowlist**, not
+    whatever happens to be fast. ``addopts`` carries ``-m 'not slow'``, so this
+    hook is what makes that selection mean "the smoke set": a test reaches those
+    legs only by carrying ``@pytest.mark.smoke``, and every other test in the
+    suite is deselected there and runs in the slow tier instead.
+
+    Nothing stops running on a pull request. The slow tier is a required status
+    check on ``main`` and runs on every pull request, four shards wide, so a
+    test moved out of the fast legs still has to pass before anything merges.
+    What it loses is the *matrix*: the slow tier is one environment, Python 3.12
+    with torchani present, where the fast legs are 3.11 without torchani and
+    3.12 with it. A regression that only shows up on the interpreter floor, or
+    only without the optional dependency, is therefore caught by the scheduled
+    run rather than by the pull request that introduced it.
+
+    ``pytest_itemcollected`` rather than ``pytest_collection_modifyitems``:
+    pytest's own ``-m`` deselection *is* a ``tryfirst`` ``modifyitems`` hook, so
+    a second ``modifyitems`` hook in a conftest is racing it for order. This one
+    runs during collection, strictly before any deselection, which is the only
+    placement that is correct by construction rather than by luck.
+
+    A test carrying both markers -- ``@pytest.mark.slow`` written out by hand in
+    a file whose other tests are smoke -- stays slow: this hook adds nothing,
+    and ``-m 'not slow'`` still excludes it. That is the intended reading, and
+    it is how the mixed modules (``test_compile_values.py``,
+    ``test_model_factory.py``) express "these few on the pull-request path, the
+    expensive rest in the tier".
+
+    Consequence worth knowing before it bites: naming a single non-smoke test on
+    the command line no longer runs it, because ``addopts`` still filters.
+    ``pytest -m "" tests/test_x.py::test_y`` clears the filter. CONTRIBUTING.md
+    says so too.
+    """
+    if item.get_closest_marker("smoke") is None:
+        item.add_marker(pytest.mark.slow)
+
+
 # Session-scoped device fixture
 @pytest.fixture(scope="session")
 def device():
@@ -299,10 +339,21 @@ def _release_gpu_memory_after_slow_tests(request):
 
     Scoped to slow tests on purpose: fast tests skip this teardown so the
     session-scoped ``aimnet_model`` fixture stays warm (the fast gate must not
-    reload models). It is also a no-op on CPU / CI, where there is no CUDA cache.
+    reload models).
+
+    And skipped entirely without CUDA, which is every CI runner. This used to
+    say it was "a no-op on CPU / CI" while the code ran ``clear_cache()`` and
+    ``gc.collect()`` unconditionally and only guarded ``empty_cache()``. On a
+    torch-loaded heap ``gc.collect()`` measures about 70 ms, which was invisible
+    at a hundred slow tests and is not at a few thousand: it is two and a half
+    minutes of pure teardown across one shard, buying nothing, because there is
+    no CUDA allocator to return memory to and no GPU context to corrupt. The
+    docstring is now true of the code rather than of the intent.
     """
     yield
     if request.node.get_closest_marker("slow") is None:
+        return
+    if not torch.cuda.is_available():
         return
     import gc
 
@@ -310,8 +361,7 @@ def _release_gpu_memory_after_slow_tests(request):
 
     ModelFactory.clear_cache()
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
 
 
 @pytest.fixture

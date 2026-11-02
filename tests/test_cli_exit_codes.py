@@ -44,6 +44,16 @@ runner = CliRunner()
 
 TORCHANI_INSTALLED = importlib.util.find_spec("torchani") is not None
 
+# The whole error taxonomy, deliberately whole rather than one hand-picked test
+# per code. A curated subset is the thing that silently stops covering an exit
+# code: rename or restructure the one test that happened to be chosen for exit
+# 7 and nothing reports that exit 7 is now unguarded, which is the same
+# asymmetric failure the slow tier's partition check exists to prevent. The
+# module also carries the pin that the documented table lists exactly the codes
+# the CLI can emit, so a new code cannot arrive undocumented. 1.7 s / 0.5 s for
+# every code at once.
+pytestmark = pytest.mark.smoke
+
 
 def _flat(text: str) -> str:
     """Collapse whitespace: Rich wraps panels at the console width, so a
