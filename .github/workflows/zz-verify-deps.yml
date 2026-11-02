@@ -1,0 +1,116 @@
+name: zz verify deps (temporary)
+
+# Throwaway. It exists to answer one question before the uv conversion of the
+# heavy jobs lands: does the resolved dependency set change? It builds each
+# converted job's environment twice in the same runner -- once with the pip
+# command the job used to run, once with the uv command it runs now -- and
+# fails if the two freezes differ. Deleted before the pull request's head.
+
+on:
+  push:
+    branches: [ci/uv-slow-tier]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: freeze diff (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: slow-shards
+            extras: "ase,ani,dev"
+            drop_aimnet: false
+          - label: no-aimnet
+            extras: "ani,ase,dev"
+            drop_aimnet: true
+          - label: docs
+            extras: "ase,ani,docs"
+            drop_aimnet: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: The old pip environment
+        run: |
+          python -m venv /tmp/env-pip
+          /tmp/env-pip/bin/python -m pip install --upgrade pip
+          /tmp/env-pip/bin/pip install -e ".[${{ matrix.extras }}]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          if [ "${{ matrix.drop_aimnet }}" = "true" ]; then
+            /tmp/env-pip/bin/pip uninstall -y aimnet
+          fi
+
+      - name: The new uv environment
+        run: |
+          python -m venv /tmp/env-uv
+          pip install uv
+          uv pip install --python /tmp/env-uv/bin/python --index-strategy unsafe-best-match \
+            -e ".[${{ matrix.extras }}]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          if [ "${{ matrix.drop_aimnet }}" = "true" ]; then
+            uv pip uninstall --python /tmp/env-uv/bin/python aimnet
+          fi
+
+      - name: The two freezes agree
+        # Frozen with the same tool on both sides on purpose: `uv pip freeze`
+        # and `pip freeze` disagree about pip and setuptools themselves, which
+        # would manufacture a difference that says nothing about the resolution.
+        # The project's own editable self-entry is recorded differently by the
+        # two installers, so it is compared separately rather than ignored.
+        run: |
+          set -o pipefail
+          for e in pip uv; do
+            /tmp/env-$e/bin/pip freeze > /tmp/freeze-$e.txt
+            grep -viE '^(-e |auto3d)' /tmp/freeze-$e.txt | LC_ALL=C sort -f > /tmp/deps-$e.txt
+            echo "$e: $(wc -l < /tmp/deps-$e.txt) third-party distributions"
+            echo "$e self-entry: $(grep -iE '^(-e |auto3d)' /tmp/freeze-$e.txt || echo NONE)"
+          done
+          if ! diff -u /tmp/deps-pip.txt /tmp/deps-uv.txt; then
+            echo "::error::the resolved dependency set differs between pip and uv"
+            exit 1
+          fi
+          echo "the dependency sets are identical"
+          grep -iE '^torch==' /tmp/deps-uv.txt
+          grep -iE '^torch==.*\+cpu$' /tmp/deps-uv.txt >/dev/null || {
+            echo "::error::torch is not the +cpu build"; exit 1; }
+          if grep -iE '^(nvidia[-_]|triton)' /tmp/deps-uv.txt; then
+            echo "::error::CUDA wheels were pulled in"; exit 1
+          fi
+          echo "no nvidia_* and no triton"
+
+      - name: aimnet is absent from both
+        if: matrix.drop_aimnet
+        run: |
+          for e in pip uv; do
+            if grep -iE '^aimnet==' /tmp/deps-$e.txt; then
+              echo "::error::$e environment still lists aimnet"; exit 1
+            fi
+            if /tmp/env-$e/bin/python -c "import aimnet" 2>/dev/null; then
+              echo "::error::$e environment can still import aimnet"; exit 1
+            fi
+            echo "$e: aimnet uninstalled and unimportable"
+          done
+
+      - name: Print both freezes
+        if: always()
+        run: |
+          for e in pip uv; do
+            echo "::group::freeze ($e)"
+            cat /tmp/freeze-$e.txt || true
+            echo "::endgroup::"
+          done
+
+      - name: Keep the freezes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: freeze-${{ matrix.label }}
+          path: /tmp/freeze-*.txt
