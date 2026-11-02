@@ -54,12 +54,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-          # No `cache: pip` here, unlike every other job in this file: the
-          # install below is uv, which does not read pip's HTTP cache, so
-          # restoring that 627 MB blob would cost about 5 s of this job's setup
-          # to feed a tool that never looks at it. The 3.12 entry is still
-          # written by the jobs that do use pip (`no-aimnet`, `slow-shards`,
-          # and the documentation workflow), so nothing else loses its cache.
+          # No `cache: pip` on any job here or in docs.yml any more: every
+          # install is uv, which does not read pip's HTTP cache, so restoring
+          # that 627 MB blob would cost about 5 s of a job's setup to feed a
+          # tool that never looks at it. Nothing writes those entries either
+          # now, so the ones already stored age out of GitHub's 7-day window
+          # unused -- which costs nothing, because the only cache a run still
+          # depends on is the model-weight entry the slow shards restore, and
+          # cache-keepalive.yml is what holds that one open.
       - name: Install
         # The runners have no GPU, and every test runs on CPU or monkeypatches
         # torch.cuda. The default wheel brings the CUDA 13 build: torch at
@@ -73,12 +75,17 @@ jobs:
         # resolver replace a working torch because of that cap, 45 s and 0.9 GB
         # per run to end where one resolution ends.
         #
-        # uv rather than pip, and on these two legs only. pip against a warm
-        # 627 MB HTTP cache took 55-81 s across the five jobs; uv with no cache
-        # at all took 47 s, because it resolves once and downloads and unpacks
-        # in parallel. `pip install uv` keeps the install to tools already
-        # trusted here -- a marketplace action would be one more thing to pin by
-        # SHA and keep in Dependabot's scope for a 3 s saving.
+        # uv rather than pip, now on every job that installs this project --
+        # the legs here, `no-aimnet`, the slow shards, and both documentation
+        # jobs. pip against a warm 627 MB HTTP cache took 50-86 s per job; uv
+        # with no cache at all takes well under a fifth of that, because it
+        # resolves once and downloads and unpacks in parallel. The heavy jobs
+        # are where that is worth having: the slow tier's install was 63-78 s a
+        # shard and `no-aimnet`'s 86 s, each of them longer than a whole fast
+        # leg now takes, and the slow tier is what the run's gate waits on.
+        # `pip install uv` keeps the install to tools already trusted here -- a
+        # marketplace action would be one more thing to pin by SHA and keep in
+        # Dependabot's scope for a 3 s saving.
         #
         # `--index-strategy unsafe-best-match` is load-bearing, not tuning:
         # uv's default stops at the first index that has a package at all, and
@@ -178,16 +185,29 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
       - name: Install, then remove aimnet
         # One project install for every extra at once, with PyTorch's CPU wheel
         # index as an extra index so the resolved torch arrives as its `+cpu`
-        # build, for the reasons spelled out on the `test` job's install step.
+        # build, and through uv with `--system` and `--index-strategy
+        # unsafe-best-match`, for the reasons spelled out on the `test` job's
+        # install step. Both flags are load-bearing there and here.
+        #
+        # This job's value is which packages it ends up *without*, so the
+        # resolver change was checked rather than assumed: a freeze of this
+        # environment built by pip and by uv differs in nothing, torch is
+        # 2.13.0+cpu with no `nvidia_*` and no `triton` either way, and
+        # `import aimnet` fails on both.
+        #
+        # `uv pip uninstall` rather than `pip uninstall -y`: it needs no
+        # confirmation flag, and like pip's it removes only the named
+        # distribution, which is what the note above about aimnet's transitive
+        # dependencies depends on.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[ani,ase,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
-          pip uninstall -y aimnet
+          pip install uv
+          uv pip install --system --index-strategy unsafe-best-match \
+            -e ".[ani,ase,dev]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          uv pip uninstall --system aimnet
       - name: Bare import works without aimnet
         run: python -c "import Auto3D"
       - name: Whole-suite collection stays clean without aimnet
@@ -289,8 +309,6 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
       - name: Cache downloaded model weights
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -305,12 +323,20 @@ jobs:
       - name: Install
         # One project install for every extra at once, with PyTorch's CPU wheel
         # index as an extra index so the resolved torch arrives as its `+cpu`
-        # build, for the reasons spelled out on the `test` job's install step.
+        # build, and through uv with `--system` and `--index-strategy
+        # unsafe-best-match`, for the reasons spelled out on the `test` job's
+        # install step. Both flags are load-bearing there and here.
+        #
+        # This is the install that pays for itself four times over: it is the
+        # same work on four runners, in front of the tier the whole run's gate
+        # waits on.
         run: |
-          python -m pip install --upgrade pip
+          pip install uv
           # ase for thermo, ani for the torchani-gated slow tests, dev for
           # pytest and for nbmake, used by the notebook step below
-          pip install -e ".[ase,ani,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+          uv pip install --system --index-strategy unsafe-best-match \
+            -e ".[ase,ani,dev]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
       - name: The shard selections still partition the slow tier
         # The matrix above is two lists that have to agree, and the dangerous
         # direction is silent: a file in the catch-all's ignore list that no

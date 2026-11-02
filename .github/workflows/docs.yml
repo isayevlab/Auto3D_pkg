@@ -16,11 +16,10 @@ on:
     # Monthly, and only the linkcheck job reads it (`build` is skipped on a
     # schedule). External link rot in a documentation set this size does not
     # accumulate weekly, and four reports a month of the same handful of dead
-    # third-party pages is how a red advisory job gets ignored. Note the
-    # contrast with tests.yml, whose weekly cron is deliberate for a different
-    # reason: it refreshes the model-weight cache inside GitHub's 7-day
-    # eviction window, so stretching *that* one would make the next pull
-    # request slower.
+    # third-party pages is how a red advisory job gets ignored. tests.yml's own
+    # cron is monthly for its own reasons; the one thing in this repository
+    # that genuinely has to stay weekly is cache-keepalive.yml, which touches
+    # the model-weight cache inside GitHub's 7-day eviction window.
     - cron: '47 6 1 * *'
   workflow_dispatch:
 
@@ -45,8 +44,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install system dependencies
         # The runner image already carries pandoc; the guard installs it only if
@@ -56,8 +53,10 @@ jobs:
       - name: Install dependencies
         # One project install for every extra at once, with PyTorch's CPU wheel
         # index as an extra index so the resolved torch arrives as its `+cpu`
-        # build, for the reasons spelled out on the install step of the `test`
-        # job in tests.yml.
+        # build, and through uv with `--system` and `--index-strategy
+        # unsafe-best-match`, for the reasons spelled out on the install step
+        # of the `test` job in tests.yml. Both flags are load-bearing there and
+        # here.
         #
         # `docs/requirements.txt` used to be installed on top of `pip install
         # -e .`: it re-declared torch, rdkit, pandas, ase and torchani with
@@ -65,8 +64,10 @@ jobs:
         # documented `>=3.23.0` -- and fetched torch twice. The `docs` extra is
         # now the one list, shared with Read the Docs.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[ase,ani,docs]" --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install uv
+          uv pip install --system --index-strategy unsafe-best-match \
+            -e ".[ase,ani,docs]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Build Sphinx documentation
         # One build, teed once. A second `make html` is incremental, the
@@ -110,8 +111,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install system dependencies
         run: command -v pandoc >/dev/null || { sudo apt-get update && sudo apt-get install -y pandoc; }
@@ -119,8 +118,10 @@ jobs:
       - name: Install dependencies
         # Same shape and the same reasons as the `build` job above.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[ase,ani,docs]" --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install uv
+          uv pip install --system --index-strategy unsafe-best-match \
+            -e ".[ase,ani,docs]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Check links
         run: make -C docs linkcheck
