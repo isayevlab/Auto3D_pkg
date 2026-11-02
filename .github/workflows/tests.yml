@@ -27,6 +27,27 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned exactly, for the reason that pins `ruff` in the `lint` job below: uv
+  # resolves and installs in front of every gate in this file and in docs.yml,
+  # so an unpinned `pip install uv` would put a resolver that takes whatever
+  # version is current at run time ahead of all of them. A release that changes
+  # resolution -- and `--index-strategy` behavior is exactly the kind of thing
+  # that moves -- would turn whichever pull request is open that day red, with
+  # no diff to point at. Declining a SHA-pinned marketplace action, as the
+  # install step below does, is an argument against that action and not for
+  # leaving the installer floating.
+  #
+  # One value referenced at each install site rather than a literal repeated at
+  # five of them. It cannot live in pyproject.toml's `dev` extra: uv is what
+  # installs the project, so it has to exist before any extra does.
+  #
+  # Every timing and every freeze recorded in the comments below was measured
+  # with this version. Bumping it is a deliberate act, like ruff's: raise it
+  # here and in docs.yml together, and re-check that the resolution still
+  # matches rather than assuming it does.
+  UV_VERSION: "0.13.6"
+
 concurrency:
   group: tests-${{ github.ref }}
   # Supersede a pull request's own earlier pushes only. `github.ref` is
@@ -85,9 +106,11 @@ jobs:
         # are where that is worth having: the slow tier's install was 63-78 s a
         # shard and `no-aimnet`'s 86 s, each of them longer than a whole fast
         # leg now takes, and the slow tier is what the run's gate waits on.
-        # `pip install uv` keeps the install to tools already trusted here -- a
-        # marketplace action would be one more thing to pin by SHA and keep in
-        # Dependabot's scope for a 3 s saving.
+        # `pip install "uv==${UV_VERSION}"` keeps the install to tools already
+        # trusted here -- a marketplace action would be one more thing to pin
+        # by SHA and keep in Dependabot's scope for a 3 s saving. The version
+        # comes from the top of this file, which is where the reason for
+        # pinning it is written down.
         #
         # `--index-strategy unsafe-best-match` is load-bearing, not tuning:
         # uv's default stops at the first index that has a package at all, and
@@ -107,7 +130,7 @@ jobs:
           # No `pip install --upgrade pip` first: the only thing pip installs
           # here is uv, which the bundled pip handles, and the self-upgrade was
           # 4-5 s of the step it used to open.
-          pip install uv
+          pip install "uv==${UV_VERSION}"
           # --system because there is no virtual environment on a runner and uv
           # refuses to touch an interpreter it was not pointed at; this is the
           # setup-python interpreter the steps below will run.
@@ -205,7 +228,7 @@ jobs:
         # distribution, which is what the note above about aimnet's transitive
         # dependencies depends on.
         run: |
-          pip install uv
+          pip install "uv==${UV_VERSION}"
           uv pip install --system --index-strategy unsafe-best-match \
             -e ".[ani,ase,dev]" \
             --extra-index-url https://download.pytorch.org/whl/cpu
@@ -333,7 +356,7 @@ jobs:
         # same work on four runners, in front of the tier the whole run's gate
         # waits on.
         run: |
-          pip install uv
+          pip install "uv==${UV_VERSION}"
           # ase for thermo, ani for the torchani-gated slow tests, dev for
           # pytest and for nbmake, used by the notebook step below
           uv pip install --system --index-strategy unsafe-best-match \
