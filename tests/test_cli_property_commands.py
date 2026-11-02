@@ -57,6 +57,8 @@ def smi(tmp_path):
 # --- parity: each new command reaches its API function ----------------------
 
 
+# `energy`, and the hand-over to `calc_spe`.
+@pytest.mark.smoke
 def test_energy_invokes_calc_spe(sdf):
     with patch.object(Auto3D.entry.SPE, "calc_spe", return_value="out_E.sdf") as m:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "--engine", "ANI2x"])
@@ -75,6 +77,8 @@ def test_energy_output_flag(sdf, tmp_path):
     assert m.call_args.kwargs["out_path"] == str(out)
 
 
+# `optimize`, and the hand-over to `opt_geometry`.
+@pytest.mark.smoke
 def test_optimize_invokes_opt_geometry(sdf):
     with patch.object(Auto3D.entry.ASE.geometry, "opt_geometry", return_value="out_opt.sdf") as m:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", "--opt-steps", "5"])
@@ -82,6 +86,8 @@ def test_optimize_invokes_opt_geometry(sdf):
     assert m.call_args.kwargs["opt_steps"] == 5
 
 
+# `tautomers`.
+@pytest.mark.smoke
 def test_tautomers_invokes_get_stable_tautomers(smi):
     with patch.object(
         Auto3D.entry.tautomer, "get_stable_tautomers", return_value="out_taut.sdf"
@@ -394,6 +400,8 @@ def test_config_init_preset_enum_valid(tmp_path):
     assert target.exists()
 
 
+# `models test`, the one `models` subcommand that loads a model.
+@pytest.mark.smoke
 def test_models_test_success(monkeypatch):
     """`models test` loads the engine and runs a forward; reports success."""
     import torch

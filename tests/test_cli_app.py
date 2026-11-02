@@ -83,6 +83,8 @@ def test_models_help(runner):
     assert "list" in result.stdout
 
 
+# `models list`.
+@pytest.mark.smoke
 def test_models_list_shows_engines(runner):
     """models list should show available engines."""
     from Auto3D.presentation.cli.app import app
@@ -92,6 +94,8 @@ def test_models_list_shows_engines(runner):
     assert "AIMNET" in result.stdout
 
 
+# `models info`.
+@pytest.mark.smoke
 def test_models_info_aimnet(runner):
     """models info should show engine details."""
     from Auto3D.presentation.cli.app import app
@@ -186,6 +190,8 @@ def test_models_info_aimnet_element_set(runner):
     assert elements == expected, f"element set changed: {elements}"
 
 
+# `validate`.
+@pytest.mark.smoke
 def test_validate_valid_smi(runner, tmp_path):
     """validate should pass for valid SMILES file."""
     from Auto3D.presentation.cli.app import app
@@ -322,6 +328,8 @@ def auto3d_process(tmp_path):
     return run
 
 
+# `config init`.
+@pytest.mark.smoke
 def test_config_init_creates_file(runner, tmp_path_cwd):
     """config init should create YAML file."""
     from Auto3D.presentation.cli.app import app
@@ -376,6 +384,8 @@ def test_config_init_invalid_preset(runner, tmp_path_cwd):
     assert "quick" in result.output
 
 
+# `config show`.
+@pytest.mark.smoke
 def test_config_show_displays_file(runner, tmp_path_cwd):
     """config show should display YAML file."""
     from Auto3D.presentation.cli.app import app
@@ -405,6 +415,8 @@ def test_config_show_not_found(runner, tmp_path_cwd):
     assert "not found" in result.stderr
 
 
+# `config validate`.
+@pytest.mark.smoke
 def test_config_validate_valid(runner, tmp_path_cwd):
     """config validate should pass for valid config."""
     from Auto3D.presentation.cli.app import app
@@ -475,6 +487,8 @@ def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
     assert m.called, "run rejected the config that config validate approved"
 
 
+# `run`, the command behind every other entry point.
+@pytest.mark.smoke
 def test_run_requires_input(runner):
     """run should require input file argument."""
     from Auto3D.presentation.cli.app import app
@@ -483,6 +497,7 @@ def test_run_requires_input(runner):
     assert result.exit_code != 0
 
 
+@pytest.mark.smoke
 def test_run_with_nonexistent_file(runner):
     """run should fail with nonexistent file."""
     from Auto3D.presentation.cli.app import app
@@ -1265,6 +1280,10 @@ def sdf_path(tmp_path):
     return p
 
 
+# `thermo`, and the closest thing to a cheap exerciser of `calc_thermo`: the
+# command's arguments are checked where they are handed over, with the
+# thermochemistry itself stubbed. Nothing cheap can check the chemistry.
+@pytest.mark.smoke
 def test_thermo_forwards_low_freq_cutoff(runner, sdf_path, monkeypatch):
     """``--low-freq-cutoff`` must reach `calc_thermo` as `low_freq_cutoff_cm`.
 

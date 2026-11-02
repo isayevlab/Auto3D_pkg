@@ -67,6 +67,10 @@ def test_unknown_key_reports_named_configuration_error(tmp_path, monkeypatch):
     assert exc_info.value.code == 2
 
 
+# Config validation, half one: an unknown key is an error. This test is the one
+# that checks both config paths agree on that, so it covers `extra="forbid"`
+# where the user actually meets it.
+@pytest.mark.smoke
 def test_unknown_key_reports_same_verdict_as_the_modern_path(tmp_path, monkeypatch):
     """Same shape, same verdict, through ``auto3d run INPUT -c cfg.yaml``.
 

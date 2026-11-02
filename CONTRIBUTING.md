@@ -147,19 +147,41 @@ ruff check src/ tests/
 # Type checking
 mypy src/Auto3D/
 
-# Run tests
+# Run tests -- the smoke set only, see below
 pytest tests/
+
+# Run everything
+pytest tests/ -m ""
 ```
 
-The first two run in CI on every pull request (the `ruff` job) and turn it red
-if they fail. `ruff`, the two fast pytest legs, the `no-aimnet` packaging check
-and the slow tier are required status checks on `main`, and `main` requires the
-branch to be up to date, so the tree that merges is the tree CI tested.
-`mypy` runs in the same job but on the weekly schedule only, not on pull
+**`pytest tests/` does not run the suite.** `addopts` carries `-m 'not slow'`,
+and `tests/conftest.py` marks every test `slow` unless it carries
+`@pytest.mark.smoke`, so the bare command runs about 115 tests out of 2459 --
+the set CI runs on the two per-pull-request `pytest` legs. Use `-m ""` to clear
+the filter. That applies to naming a single test too: `pytest
+tests/test_x.py::test_y` deselects it unless it is a smoke test, and `pytest -m
+"" tests/test_x.py::test_y` runs it.
+
+Everything else runs in the slow tier, which is four parallel jobs and a
+required status check, so a non-smoke test still has to pass before anything
+merges -- it just passes at Python 3.12 with torchani installed, rather than on
+both of the matrix legs.
+
+The first two commands above run in CI on every pull request (the `ruff` job)
+and turn it red if they fail. `ruff`, the two fast pytest legs, the
+`no-aimnet` packaging check and the slow tier are required status checks on
+`main`, and `main` requires the branch to be up to date, so the tree that
+merges is the tree CI tested.
+`mypy` runs in the same job but on the monthly schedule only, not on pull
 requests: it is advisory by construction -- it reports a known backlog of
 pre-existing errors and its step ends in `|| true`, so it has never been able
 to turn a pull request red. Run it locally with the command above; the count it
 prints depends on which optional dependencies you have installed.
+
+A new test is `slow` by default. If it belongs on the pull-request path --
+because it covers a public entry point, a CLI command, an exit code, config
+validation, a model contract or a layer boundary, and costs well under a second
+-- mark it `@pytest.mark.smoke` and say in a comment which of those it covers.
 
 CI installs an exact `ruff` version, and the `dev` extra pins the same one, so
 `pip install -e ".[dev]"` gives you the formatter CI will check against. A

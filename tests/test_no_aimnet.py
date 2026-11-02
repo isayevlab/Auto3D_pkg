@@ -20,6 +20,15 @@ from tests.helpers_no_aimnet import BrokenTransitiveDepFinder, hide_aimnet, hide
 
 AIMNET_INSTALLED = importlib.util.find_spec("aimnet") is not None
 
+# Kept whole, and this one is not a judgment call. The `no-aimnet` job -- a
+# required check, and the enforcement mechanism for the conda package's
+# dependency set -- runs `pytest tests/test_no_aimnet.py -q` under the default
+# addopts. Without `smoke` here, that step would collect nothing, exit 5 and
+# turn the job red. These tests are also exactly what "smoke" means: the
+# catastrophe they guard is `import Auto3D` failing for every conda user.
+# No measurable duration on either leg.
+pytestmark = pytest.mark.smoke
+
 
 def test_hide_optional_dependency_evicts_cached_submodules(monkeypatch):
     import types

@@ -380,6 +380,11 @@ def test_a_model_returning_a_scalar_energy_is_rejected_on_the_first_forward(tmp_
 # --- acceptance (a false rejection is a regression) -------------------------
 
 
+# The `CustomNNP` contract, from the user's side: a conforming model loads
+# through `load_custom_nnp` and produces energies. The 24 rejection cases
+# around it are in the slow tier; this is the one that fails if loading a custom
+# model stops working at all.
+@pytest.mark.smoke
 def test_contract_conforming_model_loads_and_runs(tmp_path):
     """The happy path must still work, end to end through the adapter, with the
     force sign and value that autograd implies."""

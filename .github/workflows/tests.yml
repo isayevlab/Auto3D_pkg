@@ -3,12 +3,25 @@ name: Tests
 on:
   pull_request:
   schedule:
-    # Weekly on main: the full interpreter matrix, the slow tier and the
-    # model-weight cache refresh. Pull requests run the gates below on every
-    # push; a merge commit is not run again because branch protection requires
-    # the branch to be up to date, so the tree that merges is the tree that was
-    # tested (41 of 41 merge commits over 55 days had the PR head's tree).
-    - cron: '23 5 * * 1'
+    # Monthly on main: the full interpreter matrix, the slow tier and mypy.
+    # Pull requests run the gates below on every push; a merge commit is not run
+    # again because branch protection requires the branch to be up to date, so
+    # the tree that merges is the tree that was tested (41 of 41 merge commits
+    # over 55 days had the PR head's tree).
+    #
+    # This cron used to be weekly, and it also served a second purpose that it
+    # no longer can: refreshing the model-weight cache inside the 7-day window
+    # GitHub evicts unused entries in. That job is now cache-keepalive.yml,
+    # which does only that and takes seconds. Moving this one to monthly
+    # without that workflow in place would make the first pull request after a
+    # quiet week pay a cold AIMNet2 download.
+    #
+    # What a pull request no longer covers, and therefore waits up to a month
+    # for: the 3.13 legs, the no-torchani leg at 3.12, and mypy. The two
+    # per-pull-request legs still run 3.11 without torchani and 3.12 with it,
+    # but only over the smoke set; everything else is checked once, at 3.12
+    # with torchani, in the slow tier.
+    - cron: '23 5 1 * *'
   workflow_dispatch:
 
 permissions:
@@ -96,10 +109,23 @@ jobs:
         # --continue-on-collection-errors on the fast run hides a module that
         # fails to import, so assert collection cleanliness separately.
         run: pytest tests/ --collect-only -q
-      - name: Run fast tests
-        run: pytest tests/ -q -m "not slow" --continue-on-collection-errors --durations=0
-      - name: TEMPORARY resolved dependency set
-        run: uv pip freeze --system
+      - name: Run the smoke set
+        # `-m "not slow"` is the smoke set: tests/conftest.py marks everything
+        # without `@pytest.mark.smoke` as slow, so this selects the roughly 115
+        # tests that are allowed on the pull-request path and the other ~2340
+        # run in the slow tier. tests/conftest.py explains what that costs; the
+        # short version is that a non-smoke regression is still caught on every
+        # pull request, but at 3.12-with-torchani only rather than on both legs.
+        #
+        # --durations=15 earns its log lines, because this set has to be
+        # curated by hand and the cost of a candidate cannot be guessed from a
+        # developer box: the most expensive test here is 19 s on a runner and
+        # 2 s on a 128-core desktop, and the smoke set's second most expensive
+        # is 7 s on a runner and 90 ms inside a full-suite run, where an
+        # earlier test had already paid its import. Printing the real numbers
+        # every time is what keeps "is this still worth keeping" answerable
+        # without repeating the whole measurement.
+        run: pytest tests/ -q -m "not slow" --continue-on-collection-errors --durations=15
 
       # Here rather than in `lint`, because this job is the only one that
       # installs the dependencies. mypy resolves a third-party import to `Any`
