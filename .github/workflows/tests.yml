@@ -238,6 +238,21 @@ jobs:
           # ase for thermo, ani for the torchani-gated slow tests, dev for
           # pytest and for nbmake, used by the notebook step below
           pip install -e ".[ase,ani,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: The shard selections still partition the slow tier
+        # The matrix above is two lists that have to agree, and the dangerous
+        # direction is silent: a file in the catch-all's ignore list that no
+        # shard names runs *never*, with no job failing and no count looking
+        # wrong. A comment cannot enforce that, so this re-derives the
+        # partition from collection alone -- it runs no tests, costs about 30 s
+        # of imports, and reads the shard arguments out of this file, so the
+        # check cannot drift from the matrix it checks.
+        #
+        # Before the model warm and the test run, so a broken selection
+        # reports in half a minute instead of behind a suite. On the catch-all
+        # leg only: every leg would compute the same answer, and this is the
+        # leg that owns the ignore list.
+        if: matrix.group == 'rest'
+        run: python .github/scripts/assert_slow_shards_partition.py
       - name: Warm the AIMNet2 model cache (hard failure if unreachable)
         # An unavailable gate must never be reportable as a passing gate. If the
         # registry or network is down, fail here loudly rather than letting the
