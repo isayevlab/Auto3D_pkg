@@ -1,0 +1,72 @@
+name: Cache keepalive
+
+# One job, no checkout, no install, no tests: it restores the model-weight
+# cache and stops.
+#
+# GitHub evicts an Actions cache entry that has not been *accessed* for 7 days.
+# The slow tier's four shards each restore `nnp-model-cache-v1` on every pull
+# request, so during an active week the entry is touched constantly and this
+# workflow does nothing of consequence. The week nobody opens a pull request is
+# the one it exists for: without it the entry ages out, and the next pull
+# request's four shards each re-download the AIMNet2 weights and the ANI2x
+# torch.hub checkpoints before they can start. That is the opposite of what the
+# rest of this change is for.
+#
+# Weekly, not monthly, because 7 days is the eviction window and the point is
+# to stay inside it. tests.yml's own cron is monthly; it used to be weekly and
+# was doing this job as a side effect of running the whole suite.
+#
+# A restore hit counts as an access, which is the whole mechanism -- there is
+# nothing to re-save. `actions/cache` does not write a new entry when the
+# primary key hits, and `actions/cache/restore` never writes one at all, so
+# this workflow can keep the entry alive but can never grow it. If a test ever
+# starts downloading a model the cached blob does not already hold, that
+# download repeats on every run and nothing here will say so; fixing it means
+# rotating the key in tests.yml, not changing this file.
+#
+# Not folded into tests.yml as a schedule-gated job: every job there would then
+# need an `if:` naming this cron, including the `slow` gate whose `if: always()`
+# is load-bearing for branch protection. A separate workflow has no trigger
+# overlap with a pull request, so it adds no status check and cannot appear as
+# a required one.
+
+on:
+  schedule:
+    - cron: '41 4 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  touch-model-cache:
+    name: Keep the model-weight cache alive
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Restore the model-weight cache
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          # The same two paths and the same key as the slow tier's cache step
+          # in tests.yml. If that key is ever rotated, rotate it here too --
+          # a keepalive pointing at a key nothing uses keeps the wrong entry
+          # alive and lets the real one expire, silently.
+          path: |
+            ~/.cache/aimnet
+            ~/.cache/torch
+          key: nnp-model-cache-v1
+      - name: Report what happened
+        # A miss is the interesting outcome: it means the entry had already
+        # expired or been evicted for size, and the next pull request will pay
+        # for the download. Warn rather than fail -- there is nothing wrong
+        # with the repository when this happens, and a red scheduled job that
+        # nobody can act on is the failure mode this whole change is reducing.
+        env:
+          HIT: ${{ steps.restore.outputs.cache-hit }}
+        run: |
+          if [ "$HIT" = "true" ]; then
+            echo "model-weight cache restored; its 7-day eviction clock is reset"
+          else
+            echo "::warning::no model-weight cache entry for nnp-model-cache-v1 -- the next pull request's slow shards will re-download the weights"
+          fi
