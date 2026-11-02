@@ -13,7 +13,15 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/docs.yml'
   schedule:
-    - cron: '47 6 * * 1'
+    # Monthly, and only the linkcheck job reads it (`build` is skipped on a
+    # schedule). External link rot in a documentation set this size does not
+    # accumulate weekly, and four reports a month of the same handful of dead
+    # third-party pages is how a red advisory job gets ignored. Note the
+    # contrast with tests.yml, whose weekly cron is deliberate for a different
+    # reason: it refreshes the model-weight cache inside GitHub's 7-day
+    # eviction window, so stretching *that* one would make the next pull
+    # request slower.
+    - cron: '47 6 1 * *'
   workflow_dispatch:
 
 permissions:

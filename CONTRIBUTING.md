@@ -155,8 +155,11 @@ The first two run in CI on every pull request (the `ruff` job) and turn it red
 if they fail. `ruff`, the two fast pytest legs, the `no-aimnet` packaging check
 and the slow tier are required status checks on `main`, and `main` requires the
 branch to be up to date, so the tree that merges is the tree CI tested.
-`mypy` runs there too but is advisory by construction: it reports a known
-backlog of pre-existing errors and its step ends in `|| true`.
+`mypy` runs in the same job but on the weekly schedule only, not on pull
+requests: it is advisory by construction -- it reports a known backlog of
+pre-existing errors and its step ends in `|| true`, so it has never been able
+to turn a pull request red. Run it locally with the command above; the count it
+prints depends on which optional dependencies you have installed.
 
 CI installs an exact `ruff` version, and the `dev` extra pins the same one, so
 `pip install -e ".[dev]"` gives you the formatter CI will check against. A
