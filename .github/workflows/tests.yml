@@ -572,3 +572,212 @@ jobs:
       # zero and the fix is one command, so there is no debt to grandfather.
       - name: ruff format
         run: ruff format --check src/ tests/
+
+  # The two jobs below exist because `UV_VERSION` is a pin nothing re-checks.
+  # The dependency sets uv and pip resolve were proven identical once, by a
+  # throwaway job that was deleted after it produced its measurement, so what
+  # survives of that proof is prose in a report and three numbers in the
+  # comments above. A bump re-opens exactly the question that job answered, and
+  # `--index-strategy` behavior is the kind of thing a resolver release moves.
+  #
+  # Re-proving it on a schedule, or on every pull request, would spend minutes
+  # re-answering a question that cannot have changed while the pin sits still:
+  # the install arguments are literals in this file and the pin is a literal
+  # next to them. So the check is triggered by the bump itself -- free until the
+  # risk is real, and then present on the pull request that creates it.
+  #
+  # Neither job is a required context, and that is deliberate. The heavy one is
+  # skipped on nearly every pull request, and a skipped check reports no verdict
+  # at all: required, it would leave branch protection waiting forever instead
+  # of merging. Their names are also distinct from the five required contexts,
+  # so publish.yml's `group_by(.name) | map(max_by(.completed_at))` reduction
+  # has nothing of theirs to collapse into one of those.
+  uv-pin-changed:
+    name: uv pin change detection
+    # `github.event.pull_request.base.sha` is the only thing that answers
+    # "changed relative to what", and it exists on no other event, so a
+    # scheduled or dispatched run skips this and the job below with it.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.pin.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # The base commit has to be in the clone to read the old pin out of
+          # it. This repository's history is small enough that a full fetch is
+          # a few seconds, which is cheaper than being clever about depth.
+          fetch-depth: 0
+      - name: Compare UV_VERSION against the base
+        id: pin
+        # On the *value*, not on whether the file changed. These two workflows
+        # are edited for every sort of reason -- a comment, a step, a matrix --
+        # and a path filter would fire the heavy job below on all of them while
+        # still missing the case where a pull request touches only the other
+        # file. The pin is one line in each; read it from both sides and
+        # compare.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          pin_of() { grep -E '^[[:space:]]*UV_VERSION:' | head -1 | tr -d ' "' | cut -d: -f2; }
+
+          changed=false
+          for f in .github/workflows/tests.yml .github/workflows/docs.yml; do
+            head_pin=$(pin_of < "$f")
+            base_pin=$(git show "$BASE_SHA:$f" 2>/dev/null | pin_of || true)
+            echo "$f: base='${base_pin:-<absent>}' head='${head_pin:-<absent>}'"
+            if [ -z "$head_pin" ]; then
+              echo "::error::$f no longer declares a workflow-level UV_VERSION, so the uv version every install here uses is whatever is current at run time"
+              exit 1
+            fi
+            if [ "$head_pin" != "$base_pin" ]; then
+              changed=true
+            fi
+          done
+
+          # Both files install this same project, and the comment in each says
+          # to bump them together. Bumping one and not the other is the cheap
+          # mistake this catches, and it costs nothing to check while the
+          # values are already in hand.
+          tests_pin=$(pin_of < .github/workflows/tests.yml)
+          docs_pin=$(pin_of < .github/workflows/docs.yml)
+          if [ "$tests_pin" != "$docs_pin" ]; then
+            echo "::error::tests.yml pins uv $tests_pin and docs.yml pins $docs_pin; they install the same project and are meant to be bumped together"
+            exit 1
+          fi
+
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          if [ "$changed" = true ]; then
+            echo "uv pin moved to $tests_pin, re-checking the resolution it produces"
+          else
+            echo "uv pin unchanged at $tests_pin, nothing to re-check"
+          fi
+
+  uv-pin-resolution:
+    name: uv pin resolution (${{ matrix.label }})
+    needs: uv-pin-changed
+    if: needs.uv-pin-changed.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # One leg per extras set actually installed anywhere, because the
+      # resolution is a property of the extras and not of the job: `ase,ani,dev`
+      # covers all four slow shards, `ani,ase,dev` plus the uninstall covers
+      # no-aimnet, and `ase,ani,docs` covers both documentation jobs. The fast
+      # `test` legs are pip and are not uv's to get wrong.
+      matrix:
+        include:
+          - label: slow-shards
+            extras: "ase,ani,dev"
+            drop_aimnet: false
+          - label: no-aimnet
+            extras: "ani,ase,dev"
+            drop_aimnet: true
+          - label: docs
+            extras: "ase,ani,docs"
+            drop_aimnet: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: The pip reference environment
+        # pip is the independent answer to "what should this resolve to", which
+        # is why it is still built here after every job switched to uv. Same
+        # command the jobs here used to run, `--upgrade pip` included, so the
+        # result is comparable with the freezes recorded when the conversion
+        # landed.
+        run: |
+          python -m venv /tmp/env-pip
+          /tmp/env-pip/bin/python -m pip install --upgrade pip
+          /tmp/env-pip/bin/pip install -e ".[${{ matrix.extras }}]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          if [ "${{ matrix.drop_aimnet }}" = "true" ]; then
+            /tmp/env-pip/bin/pip uninstall -y aimnet
+          fi
+
+      - name: The pinned uv environment
+        # `--python` rather than the `--system` the real jobs use: two
+        # environments have to coexist in this one runner, so each is addressed
+        # explicitly. Which interpreter uv installs into does not affect what it
+        # resolves, and every other argument is the one the jobs above pass.
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/env-uv
+          pip install "uv==${UV_VERSION}"
+          # The pin is the subject of this job, so assert the version actually
+          # in use rather than trusting the install log.
+          test "$(uv --version)" = "uv ${UV_VERSION}" || {
+            echo "::error::uv reports '$(uv --version)', not the pinned ${UV_VERSION}"; exit 1; }
+          uv pip install --python /tmp/env-uv/bin/python --index-strategy unsafe-best-match \
+            -e ".[${{ matrix.extras }}]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          if [ "${{ matrix.drop_aimnet }}" = "true" ]; then
+            uv pip uninstall --python /tmp/env-uv/bin/python aimnet
+          fi
+
+      - name: The two freezes agree
+        # Frozen with the same tool on both sides on purpose: `uv pip freeze`
+        # and `pip freeze` disagree about pip and setuptools themselves, which
+        # would manufacture a difference that says nothing about the resolution.
+        # The project's own editable self-entry is recorded differently by the
+        # two installers, so it is compared separately rather than ignored.
+        run: |
+          set -o pipefail
+          for e in pip uv; do
+            /tmp/env-$e/bin/pip freeze > /tmp/freeze-$e.txt
+            grep -viE '^(-e |auto3d)' /tmp/freeze-$e.txt | LC_ALL=C sort -f > /tmp/deps-$e.txt
+            echo "$e: $(wc -l < /tmp/deps-$e.txt) third-party distributions"
+            echo "$e self-entry: $(grep -iE '^(-e |auto3d)' /tmp/freeze-$e.txt || echo NONE)"
+          done
+          if ! diff -u /tmp/deps-pip.txt /tmp/deps-uv.txt; then
+            echo "::error::uv ${UV_VERSION} resolves a different dependency set than pip; the differing lines are in the diff above"
+            exit 1
+          fi
+          echo "the dependency sets are identical"
+          grep -iE '^torch==' /tmp/deps-uv.txt
+          grep -iE '^torch==.*\+cpu$' /tmp/deps-uv.txt >/dev/null || {
+            echo "::error::torch is not the +cpu build"; exit 1; }
+          if grep -iE '^(nvidia[-_]|triton)' /tmp/deps-uv.txt; then
+            echo "::error::CUDA wheels were pulled in"; exit 1
+          fi
+          echo "no nvidia_* and no triton"
+
+      - name: aimnet is absent from both
+        # Absence asserted on both sides rather than inferred from a count:
+        # this leg stands for a job whose entire value is which package it ends
+        # up *without*, and a count that happens to match would say nothing
+        # about which distribution left. `uv pip uninstall` has to leave
+        # aimnet's transitive dependencies in place exactly as `pip uninstall
+        # -y` did, which is what the job's own comment rests on.
+        if: matrix.drop_aimnet
+        run: |
+          for e in pip uv; do
+            if grep -iE '^aimnet==' /tmp/deps-$e.txt; then
+              echo "::error::$e environment still lists aimnet"; exit 1
+            fi
+            if /tmp/env-$e/bin/python -c "import aimnet" 2>/dev/null; then
+              echo "::error::$e environment can still import aimnet"; exit 1
+            fi
+            echo "$e: aimnet uninstalled and unimportable"
+          done
+
+      - name: Print both freezes
+        if: always()
+        run: |
+          for e in pip uv; do
+            echo "::group::freeze ($e)"
+            cat /tmp/freeze-$e.txt || true
+            echo "::endgroup::"
+          done
+
+      - name: Keep the freezes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: freeze-${{ matrix.label }}
+          path: /tmp/freeze-*.txt
