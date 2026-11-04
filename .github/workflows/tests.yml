@@ -301,21 +301,31 @@ jobs:
       # looking wrong. Every class of a file this matrix ignores has to appear
       # on some leg; the step below is what checks that.
       #
-      # Why four legs and not more. The split is bounded by its largest
-      # indivisible unit, and that is now tests/test_auto3D.py at 109 s: its 21
-      # slow tests are module-level functions with no class to select, so
-      # nothing short of node IDs or a new marker divides it. With ~34 s of
-      # fixed setup per shard that is a floor of ~143 s on the binding job, and
-      # four legs already sit within a couple of seconds of it (measured
-      # test-seconds below sum to 404, so the three divisible legs land at
-      # 109-111 s each). Five legs would spend a whole extra runner to reach
-      # the same 143 s, and six the same again: past four, the shard count buys
-      # nothing because test_auto3D.py, not the arithmetic, is what binds.
-      # Re-balance when any leg -- the catch-all included -- passes
-      # test_auto3D.py, because below that figure nothing else is visible.
+      # Why four legs and not more. A split is bounded by its largest
+      # indivisible unit, and there are two of them here. tests/test_auto3D.py
+      # is 102 s of tests whose 21 slow cases are module-level functions with
+      # no class to name, so nothing short of node IDs or a new marker divides
+      # it. The catch-all is 107 s, and it can only be made smaller by naming
+      # more files here -- the three worth naming are the ones deliberately
+      # kept together below, so in practice it is fixed too. Both numbers are
+      # measured, from the `--durations` output of the test step, not
+      # apportioned.
+      #
+      # So the floor on the binding leg's work is 107 s, and the legs below
+      # carry 109 / 102 / 109 / 107 -- the heaviest is 2.2 s above a floor that
+      # no shard count can lower. A fifth leg would divide only the remainder
+      # that is already under that floor, moving at most those 2.2 s, and would
+      # add a fifth runner to a gate that is `max` over all of them: the
+      # catch-all's identical selection has been measured at 62 s and 107 s on
+      # two consecutive runs, so each extra leg is another chance to draw the
+      # slow runner that sets the gate. Past four, more shards make the
+      # expected gate worse, not better.
+      #
+      # Re-balance when a leg passes the catch-all, and read the seconds out of
+      # a run's `--durations` output rather than from a local box.
       matrix:
         include:
-          # 41 + 39 + 30 = 110 s. test_pipeline_e2e.py used to be a leg of its
+          # 36 + 42 + 31 = 109 s. test_pipeline_e2e.py used to be a leg of its
           # own at 120 s and was the binding shard of the whole run; it is split
           # across this leg and leg 3 by class. All five of its classes take
           # their output directory from the job_dir/isolated_input fixtures, so
@@ -327,8 +337,8 @@ jobs:
               tests/test_worker_lifecycle.py
               tests/test_pipeline_e2e.py::TestInputOutputAccounting
               tests/test_pipeline_e2e.py::TestDummyAtomInput
-          # 109 s, and the leg that sets the floor for all of them, for the
-          # reason given above. Deliberately alone: it and test_pipeline_e2e.py
+          # 102 s, one of the two units nothing divides, for the reason given
+          # above. Deliberately alone: it and test_pipeline_e2e.py
           # were 53% of the tier between them, so they have to land on
           # different runners. Safe to isolate because test_auto3D.py runs every
           # pipeline test through the job_dir/isolated_input fixtures, so it
@@ -338,7 +348,7 @@ jobs:
           - shard: "2 of 4 (main and smiles2mols)"
             group: auto3d
             select: tests/test_auto3D.py
-          # 35 + 33 + 28 + 15 = 111 s. test_thermo.py stages its opt_geometry
+          # 37 + 25 + 33 + 14 = 109 s. test_thermo.py stages its opt_geometry
           # inputs in tmp_path, so it is isolable for the same reason
           # test_auto3D.py is. TestClashReliefWarning rides along at well under
           # a second: it monkeypatches clash relief and runs no NNP at all, so
@@ -351,10 +361,11 @@ jobs:
               tests/test_pipeline_e2e.py::TestEnergyAndRankingSanity
               tests/test_pipeline_e2e.py::TestExitStatus
               tests/test_pipeline_e2e.py::TestClashReliefWarning
-          # The other 22 files, about 74 s, plus anything added later. It also
-          # carries the partition check and the notebook, which is ~25 s this
-          # leg has and the others do not -- the reason it is given the least
-          # test time of the four rather than an equal share.
+          # The other 22 files, 62-107 s depending on the runner, plus
+          # anything added later -- and the other unit nothing here divides.
+          # It also carries the partition check and the notebook, 25-38 s that
+          # this leg has and the others do not, which is why it is handed no
+          # more test time than the named legs despite being the catch-all.
           #
           # test_SPE.py, test_isomer_engine.py and test_tauto.py all live here,
           # in the order a full run gives them. They are the three modules that
