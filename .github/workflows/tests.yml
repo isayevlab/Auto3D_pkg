@@ -371,6 +371,15 @@ jobs:
         # of imports, and reads the shard arguments out of this file, so the
         # check cannot drift from the matrix it checks.
         #
+        # It also refuses a shard whose selection collects nothing. That is a
+        # separate question from the partition and not implied by it: a
+        # selection that has emptied out leaves both sides of the comparison at
+        # once, so the union still matches and a runner still installs this
+        # project to run no tests. It is what makes naming a test class below
+        # safe -- a class is one edit away from holding no slow tests, and the
+        # alternative catch is pytest's exit 5 in the test step, which reports
+        # after the install and the model warm instead of before them.
+        #
         # Before the model warm and the test run, so a broken selection
         # reports in half a minute instead of behind a suite. On the catch-all
         # leg only: every leg would compute the same answer, and this is the
