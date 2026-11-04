@@ -46,7 +46,7 @@ env:
   # with this version. Bumping it is a deliberate act, like ruff's: raise it
   # here and in docs.yml together, and re-check that the resolution still
   # matches rather than assuming it does.
-  UV_VERSION: "0.13.7"
+  UV_VERSION: "0.13.6"
 
 concurrency:
   group: tests-${{ github.ref }}
