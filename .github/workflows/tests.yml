@@ -250,7 +250,11 @@ jobs:
     # runner-up, with `pytest -m slow` itself 81% of the job. The time is
     # spread evenly inside each heavy file, so there was no single test to
     # speed up -- four shards on four runners take the tier to roughly 235 s,
-    # which is then what the whole run costs.
+    # which is then what the whole run costs. Installing with uv took that to
+    # 165 s, at which point the shards' own test balance was all that was left:
+    # 120 / 109 / 105 / 74 test-seconds, the heaviest leg 1.6x the lightest and
+    # binding the gate on its own. The matrix below is the rebalance, and the
+    # note there on why four legs is the end of that road.
     #
     # Sharding across jobs rather than with xdist inside one job is the point,
     # not an accident. Each shard gets its own runner and its own filesystem,
@@ -279,37 +283,78 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      # Two lists that have to move in lockstep: `select` names the files a
-      # shard runs, and the last leg takes `tests/` minus exactly those files.
-      # The asymmetry is the thing to remember -- a file named in a shard but
-      # left out of the ignore list merely runs twice, while a file in the
-      # ignore list that no shard names runs *never*, silently. Adding a slow
-      # test to a file that appears in neither list needs no change here at
-      # all: the catch-all picks it up. Re-balance when the catch-all grows
-      # past the heaviest named shard; the medians below are what the split is
-      # fitted to.
+      # Two lists that have to move in lockstep: `select` names the files and
+      # test classes a shard runs, and the last leg takes `tests/` minus
+      # exactly those files. The asymmetry is the thing to remember -- a file
+      # named in a shard but left out of the ignore list merely runs twice,
+      # while a file in the ignore list that no shard names runs *never*,
+      # silently. Adding a slow test to a file that appears in neither list
+      # needs no change here at all: the catch-all picks it up. The step below
+      # enforces both directions, and refuses a selection that collects
+      # nothing.
+      #
+      # A class is selected as `<file>::<Class>`, and only on a named leg: the
+      # catch-all's `--ignore=` of a file beats an explicit node ID inside it,
+      # so a class listed there would be silently dropped rather than run.
+      # Classes, not node IDs -- a node ID moves whenever somebody
+      # parametrizes a test, and the selection would rot without anything
+      # looking wrong. Every class of a file this matrix ignores has to appear
+      # on some leg; the step below is what checks that.
+      #
+      # Why four legs and not more. The split is bounded by its largest
+      # indivisible unit, and that is now tests/test_auto3D.py at 109 s: its 21
+      # slow tests are module-level functions with no class to select, so
+      # nothing short of node IDs or a new marker divides it. With ~34 s of
+      # fixed setup per shard that is a floor of ~143 s on the binding job, and
+      # four legs already sit within a couple of seconds of it (measured
+      # test-seconds below sum to 404, so the three divisible legs land at
+      # 109-111 s each). Five legs would spend a whole extra runner to reach
+      # the same 143 s, and six the same again: past four, the shard count buys
+      # nothing because test_auto3D.py, not the arithmetic, is what binds.
+      # Re-balance when any leg -- the catch-all included -- passes
+      # test_auto3D.py, because below that figure nothing else is visible.
       matrix:
         include:
-          # 120 s of tests, the heaviest file in the tier.
-          - shard: "1 of 4 (end-to-end pipeline)"
-            group: pipeline-e2e
-            select: tests/test_pipeline_e2e.py
-          # 93 s. Deliberately not with the file above: those two alone are
-          # 53% of the tier, so they have to land on different runners. Safe to
-          # isolate because test_auto3D.py runs every pipeline test through the
-          # job_dir/isolated_input fixtures, so it writes no job directories or
-          # output SDFs into tests/files/ -- the reason the tier stopped being
-          # limited to three files in the first place.
+          # 41 + 39 + 30 = 110 s. test_pipeline_e2e.py used to be a leg of its
+          # own at 120 s and was the binding shard of the whole run; it is split
+          # across this leg and leg 3 by class. All five of its classes take
+          # their output directory from the job_dir/isolated_input fixtures, so
+          # they neither depend on each other nor on running in file order, and
+          # the same is true of test_worker_lifecycle.py.
+          - shard: "1 of 4 (workers, input accounting)"
+            group: workers-accounting
+            select: >-
+              tests/test_worker_lifecycle.py
+              tests/test_pipeline_e2e.py::TestInputOutputAccounting
+              tests/test_pipeline_e2e.py::TestDummyAtomInput
+          # 109 s, and the leg that sets the floor for all of them, for the
+          # reason given above. Deliberately alone: it and test_pipeline_e2e.py
+          # were 53% of the tier between them, so they have to land on
+          # different runners. Safe to isolate because test_auto3D.py runs every
+          # pipeline test through the job_dir/isolated_input fixtures, so it
+          # writes no job directories or output SDFs into tests/files/ -- the
+          # reason the tier stopped being limited to three files in the first
+          # place.
           - shard: "2 of 4 (main and smiles2mols)"
             group: auto3d
             select: tests/test_auto3D.py
-          # 41 + 33 + 28 = 102 s, the three next-heaviest files. test_thermo.py
-          # stages its opt_geometry inputs in tmp_path, so it is isolable for
-          # the same reason test_auto3D.py is.
-          - shard: "3 of 4 (workers, compile, thermo)"
-            group: workers-thermo
-            select: tests/test_worker_lifecycle.py tests/test_compile_values.py tests/test_thermo.py
-          # The other 22 files, about 85 s, plus anything added later.
+          # 35 + 33 + 28 + 15 = 111 s. test_thermo.py stages its opt_geometry
+          # inputs in tmp_path, so it is isolable for the same reason
+          # test_auto3D.py is. TestClashReliefWarning rides along at well under
+          # a second: it monkeypatches clash relief and runs no NNP at all, so
+          # it has nowhere cheaper to be.
+          - shard: "3 of 4 (compile, thermo, ranking)"
+            group: compile-thermo-ranking
+            select: >-
+              tests/test_compile_values.py
+              tests/test_thermo.py
+              tests/test_pipeline_e2e.py::TestEnergyAndRankingSanity
+              tests/test_pipeline_e2e.py::TestExitStatus
+              tests/test_pipeline_e2e.py::TestClashReliefWarning
+          # The other 22 files, about 74 s, plus anything added later. It also
+          # carries the partition check and the notebook, which is ~25 s this
+          # leg has and the others do not -- the reason it is given the least
+          # test time of the four rather than an equal share.
           #
           # test_SPE.py, test_isomer_engine.py and test_tauto.py all live here,
           # in the order a full run gives them. They are the three modules that
@@ -418,9 +463,12 @@ jobs:
         # above. Explicit paths also override `testpaths`, which is why a
         # targeted shard collects in a fraction of a second.
         #
-        # A shard whose files were all renamed away would collect nothing;
-        # pytest exits 5 for that and nothing here suppresses it, so such a
-        # shard reports red rather than passing empty.
+        # A shard whose selection collects nothing has already failed the
+        # partition check above, by name and before the install. pytest's exit
+        # 5 is the backstop for it here -- nothing suppresses it, so such a
+        # shard reports red rather than passing empty -- and a selection naming
+        # a class that no longer exists exits 4 rather than 5, which is red the
+        # same way.
         run: pytest ${{ matrix.select }} -m slow -q
 
       # Executes one notebook for real. Here rather than in the docs workflow
