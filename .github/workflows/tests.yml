@@ -311,30 +311,41 @@ jobs:
       # measured, from the `--durations` output of the test step, not
       # apportioned.
       #
-      # So the floor on the binding leg's work is 107 s, and the legs below
-      # carry 109 / 102 / 109 / 107 -- the heaviest is 2.2 s above a floor that
-      # no shard count can lower. A fifth leg would divide only the remainder
-      # that is already under that floor, moving at most those 2.2 s, and would
-      # add a fifth runner to a gate that is `max` over all of them: the
-      # catch-all's identical selection has been measured at 62 s and 107 s on
-      # two consecutive runs, so each extra leg is another chance to draw the
-      # slow runner that sets the gate. Past four, more shards make the
-      # expected gate worse, not better.
+      # So the floor on the binding leg's work is whichever of those two is
+      # larger, and the legs below sit level with it: 110 / 108 / 109 / 107 on
+      # one measured run and 101 / 74 / 105 / 82 on another. A fifth leg would
+      # divide only the remainder that is already under that floor, so it could
+      # move almost nothing off the binding leg -- and it would add a fifth
+      # runner to a gate that is `max` over all of them. Each leg is an
+      # independent draw on runner speed, and that spread is wide: the
+      # catch-all's identical selection, the same 2,295 tests, took 62 s, 107 s
+      # and 82 s on three consecutive runs. Past four, an extra leg is one more
+      # chance to draw the slow runner that sets the gate, so more shards make
+      # the expected gate worse rather than better.
       #
-      # Re-balance when a leg passes the catch-all, and read the seconds out of
-      # a run's `--durations` output rather than from a local box.
+      # Which pairing, and not just how many. The volatile unit is
+      # test_compile_values.py: its torch.compile test alone was 33 s and then
+      # 43 s on two runs, so the file moved 37 -> 51 s while test_thermo.py sat
+      # at 25.5 -> 26.0. Putting it on the same leg as the three other
+      # middle-weight units made that leg the binding one on every run; paired
+      # instead with the two lightest end-to-end classes it balances under both
+      # measurements. Re-balance when a leg passes the catch-all, and read the
+      # seconds out of a run's `--durations` output rather than from a local
+      # box, which is what got this wrong the first time.
       matrix:
         include:
-          # 36 + 42 + 31 = 109 s. test_pipeline_e2e.py used to be a leg of its
-          # own at 120 s and was the binding shard of the whole run; it is split
-          # across this leg and leg 3 by class. All five of its classes take
-          # their output directory from the job_dir/isolated_input fixtures, so
-          # they neither depend on each other nor on running in file order, and
-          # the same is true of test_worker_lifecycle.py.
-          - shard: "1 of 4 (workers, input accounting)"
-            group: workers-accounting
+          # 37-51 + 42 + 31 = 110 s, and 101 s on the other measured run. The
+          # spread is all test_compile_values.py, which is why the two lightest
+          # end-to-end classes keep it company rather than more middle-weights.
+          # test_pipeline_e2e.py used to be a leg of its own at 120 s and was
+          # the binding shard of the whole run; it is split across this leg and
+          # leg 3 by class. All five of its classes take their output directory
+          # from the job_dir/isolated_input fixtures, so they neither depend on
+          # each other nor on running in file order.
+          - shard: "1 of 4 (compile, input accounting)"
+            group: compile-accounting
             select: >-
-              tests/test_worker_lifecycle.py
+              tests/test_compile_values.py
               tests/test_pipeline_e2e.py::TestInputOutputAccounting
               tests/test_pipeline_e2e.py::TestDummyAtomInput
           # 102 s, one of the two units nothing divides, for the reason given
@@ -348,15 +359,18 @@ jobs:
           - shard: "2 of 4 (main and smiles2mols)"
             group: auto3d
             select: tests/test_auto3D.py
-          # 37 + 25 + 33 + 14 = 109 s. test_thermo.py stages its opt_geometry
-          # inputs in tmp_path, so it is isolable for the same reason
-          # test_auto3D.py is. TestClashReliefWarning rides along at well under
-          # a second: it monkeypatches clash relief and runs no NNP at all, so
-          # it has nowhere cheaper to be.
-          - shard: "3 of 4 (compile, thermo, ranking)"
-            group: compile-thermo-ranking
+          # 29-36 + 26 + 33 + 15 = 109 s, and 105 s on the other measured run:
+          # four units that each move by a second or two, which is what makes
+          # this the leg to put four of them on. test_worker_lifecycle.py and
+          # test_thermo.py both stage their inputs in tmp_path, so they are
+          # isolable for the same reason test_auto3D.py is.
+          # TestClashReliefWarning rides along at well under a second: it
+          # monkeypatches clash relief and runs no NNP at all, so it has
+          # nowhere cheaper to be.
+          - shard: "3 of 4 (workers, thermo, ranking)"
+            group: workers-thermo-ranking
             select: >-
-              tests/test_compile_values.py
+              tests/test_worker_lifecycle.py
               tests/test_thermo.py
               tests/test_pipeline_e2e.py::TestEnergyAndRankingSanity
               tests/test_pipeline_e2e.py::TestExitStatus
