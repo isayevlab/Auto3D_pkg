@@ -2,8 +2,8 @@
 """Assert that the slow tier's shard selections still partition it.
 
 The slow tier runs as a matrix of selections (`slow-shards` in
-.github/workflows/tests.yml): three legs name files and test classes explicitly
-and the last takes `tests/` minus exactly those files. That is two lists which
+.github/workflows/tests.yml): three legs name files explicitly and the last
+takes `tests/` minus exactly those files. That is two lists which
 have to agree, and their failure modes are not symmetric. A file named in a
 shard but left out of the catch-all's ignore list merely runs twice -- wasteful,
 visible, harmless. A file in the ignore list that no shard names runs *never*:
@@ -26,23 +26,30 @@ on which node IDs, paths or shards:
      consequence),
   4. no shard collects an empty selection.
 
-Invariant 4 is not implied by the other three, and it is what makes selecting by
-test class safe rather than merely possible. Classes are selected as
-`<file>::<Class>`, so a shard's whole selection can empty out -- its tests all
-gaining the `smoke` marker, or the class being hollowed out -- while the union
-still equals the unsharded set and the shards stay disjoint, because the tests
-that left are gone from both sides of the comparison. All three of the other
-invariants hold and a runner spends two minutes installing this project to run
-nothing. Before this check that case was caught only incidentally, by pytest's
-exit code 5 in the shard's own test step, which reports after the install and
-the model warm rather than before them and says nothing about which selection
-emptied.
+Invariant 4 is not implied by the other three. A selection that has emptied out
+leaves both sides of their comparison at once, so the union still equals the
+unsharded set and the shards stay disjoint -- the tests that left are gone from
+the shards and from `tests/` alike -- and a runner spends two minutes installing
+this project to run nothing.
 
-Invariant 3 compares *file* paths: a shard argument is reduced to the part
-before `::`, so naming one class of a file counts as naming the file. The
-class-level loss that leaves behind -- a file whose classes are only partly
-claimed -- is invariant 1's job, and it catches it exactly, because the
-unclaimed class's tests are in the unsharded set and in no shard.
+With whole-file selections that is reachable only by renaming a file the
+catch-all then picks back up, which pytest's exit code 5 catches in the shard's
+own test step: late, after the install and the model warm, and without saying
+which selection emptied. The invariant exists ahead of the case that makes it
+load-bearing. Selecting a test *class* (`<file>::<Class>`) is the obvious next
+step for balancing this tier, and a class is one edit away from holding no slow
+tests -- every test in it gaining the `smoke` marker is enough, and nothing
+about the partition would look wrong. That split was measured and declined (the
+balance it buys is smaller than the runner-speed variation between legs), so
+this script carries the invariant without the matrix yet needing it.
+
+Invariant 3 therefore compares *file* paths: a shard argument is reduced to the
+part before `::`, so naming one class of a file counts as naming the file. That
+costs nothing while selections are whole files and is what stops a future class
+selection from reporting its own file as orphaned. The class-level loss it
+leaves behind -- a file whose classes are only partly claimed -- is invariant
+1's job, and it catches it exactly, because the unclaimed class's tests are in
+the unsharded set and in no shard.
 
 Usage: assert_slow_shards_partition.py [workflow.yml]
 """

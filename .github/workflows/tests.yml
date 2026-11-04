@@ -375,10 +375,19 @@ jobs:
         # separate question from the partition and not implied by it: a
         # selection that has emptied out leaves both sides of the comparison at
         # once, so the union still matches and a runner still installs this
-        # project to run no tests. It is what makes naming a test class below
-        # safe -- a class is one edit away from holding no slow tests, and the
-        # alternative catch is pytest's exit 5 in the test step, which reports
-        # after the install and the model warm instead of before them.
+        # project to run no tests.
+        #
+        # Today every leg selects whole files, where that case is reachable
+        # only by renaming a file the catch-all then picks back up, and pytest's
+        # exit 5 in the test step catches it anyway -- late, after the install
+        # and the model warm, and without saying which selection emptied. The
+        # assertion is here because the obvious next step for balancing this
+        # tier is to select a test *class* (`<file>::<Class>`), and a class is
+        # one edit away from holding no slow tests: every test in it gaining
+        # the `smoke` marker is enough, and nothing about the partition would
+        # look wrong. That was measured and declined -- the balance it buys is
+        # smaller than the runner-speed variation between legs -- so the guard
+        # is the half of it worth keeping, and it is cheap either way.
         #
         # Before the model warm and the test run, so a broken selection
         # reports in half a minute instead of behind a suite. On the catch-all
@@ -420,8 +429,21 @@ jobs:
         #
         # A shard whose files were all renamed away would collect nothing;
         # pytest exits 5 for that and nothing here suppresses it, so such a
-        # shard reports red rather than passing empty.
-        run: pytest ${{ matrix.select }} -m slow -q
+        # shard reports red rather than passing empty. The partition check
+        # above now refuses that case by name, before the install.
+        #
+        # `--durations` because this tier sets the whole run's critical path and
+        # nothing else records where its time goes. Two things it makes visible
+        # that were previously guessed at, both of which cost real effort to
+        # learn the hard way: which shard is heaviest and by how much, and that
+        # one test -- test_ani2xt_compiled_matches_eager_on_cpu, measured at
+        # 33-43 s -- is about a tenth of the tier on its own. Balance claims
+        # about these shards should be read out of this output rather than
+        # apportioned from a developer box, where the same file's classes
+        # divide 58/42 against 46/54 on a runner. Top 25 rather than all of
+        # them: a split is decided by the heavy tests, and the catch-all
+        # collects 2,295.
+        run: pytest ${{ matrix.select }} -m slow -q --durations=25
 
       # Executes one notebook for real. Here rather than in the docs workflow
       # because every one of the 20 needs a neural network potential, and this
