@@ -743,9 +743,13 @@ jobs:
           python -m venv /tmp/env-uv
           pip install "uv==${UV_VERSION}"
           # The pin is the subject of this job, so assert the version actually
-          # in use rather than trusting the install log.
-          test "$(uv --version)" = "uv ${UV_VERSION}" || {
-            echo "::error::uv reports '$(uv --version)', not the pinned ${UV_VERSION}"; exit 1; }
+          # in use rather than trusting the install log. Second field only:
+          # `uv --version` prints `uv 0.13.7 (x86_64-unknown-linux-gnu)`, so
+          # matching the whole line never succeeds and the build target is not
+          # what is being pinned.
+          got=$(uv --version | awk '{print $2}')
+          test "$got" = "${UV_VERSION}" || {
+            echo "::error::uv reports version '$got', not the pinned ${UV_VERSION}"; exit 1; }
           uv pip install --python /tmp/env-uv/bin/python --index-strategy unsafe-best-match \
             -e ".[${{ matrix.extras }}]" \
             --extra-index-url https://download.pytorch.org/whl/cpu
