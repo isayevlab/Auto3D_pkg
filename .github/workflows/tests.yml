@@ -72,7 +72,7 @@ jobs:
       matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"python":"3.11","ani":false,"extras":"ase,dev"},{"python":"3.12","ani":true,"extras":"ase,ani,dev"}]}' || '{"include":[{"python":"3.11","ani":false,"extras":"ase,dev"},{"python":"3.12","ani":false,"extras":"ase,dev"},{"python":"3.12","ani":true,"extras":"ase,ani,dev"},{"python":"3.13","ani":false,"extras":"ase,dev"},{"python":"3.13","ani":true,"extras":"ase,ani,dev"}]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ matrix.python }}
           # No `cache: pip` on any job here or in docs.yml any more: every
@@ -207,7 +207,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install, then remove aimnet
@@ -331,7 +331,7 @@ jobs:
               --ignore=tests/test_thermo.py
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Cache downloaded model weights
@@ -513,7 +513,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       # ruff needs no dependencies installed; mypy does, so it runs in the
@@ -655,7 +655,7 @@ jobs:
             drop_aimnet: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
 
