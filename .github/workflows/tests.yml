@@ -469,7 +469,15 @@ jobs:
         # shard reports red rather than passing empty -- and a selection naming
         # a class that no longer exists exits 4 rather than 5, which is red the
         # same way.
-        run: pytest ${{ matrix.select }} -m slow -q
+        #
+        # `--durations` because the balance above is a claim about seconds, and
+        # the only honest source for it is this step's own output. Apportioning
+        # a file's classes from a local run gets the direction wrong: the same
+        # five classes that are 58/42 on a developer box pinned to four cores
+        # came out 46/54 on a runner, which was enough to put 25 s on the wrong
+        # leg. Top 25 rather than all: it is the heavy tests that decide a
+        # split, and the catch-all collects 2,295 of them.
+        run: pytest ${{ matrix.select }} -m slow -q --durations=25
 
       # Executes one notebook for real. Here rather than in the docs workflow
       # because every one of the 20 needs a neural network potential, and this
