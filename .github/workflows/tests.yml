@@ -253,8 +253,9 @@ jobs:
     # which is then what the whole run costs. Installing with uv took that to
     # 165 s, at which point the shards' own test balance was all that was left:
     # 120 / 109 / 105 / 74 test-seconds, the heaviest leg 1.6x the lightest and
-    # binding the gate on its own. The matrix below is the rebalance, and the
-    # note there on why four legs is the end of that road.
+    # binding the gate on its own. The matrix below is the rebalance; the notes
+    # there say why four legs is the end of that road and what the rebalance is
+    # and is not worth.
     #
     # Sharding across jobs rather than with xdist inside one job is the point,
     # not an accident. Each shard gets its own runner and its own filesystem,
@@ -323,15 +324,31 @@ jobs:
       # chance to draw the slow runner that sets the gate, so more shards make
       # the expected gate worse rather than better.
       #
-      # Which pairing, and not just how many. The volatile unit is
-      # test_compile_values.py: its torch.compile test alone was 33 s and then
-      # 43 s on two runs, so the file moved 37 -> 51 s while test_thermo.py sat
-      # at 25.5 -> 26.0. Putting it on the same leg as the three other
-      # middle-weight units made that leg the binding one on every run; paired
-      # instead with the two lightest end-to-end classes it balances under both
-      # measurements. Re-balance when a leg passes the catch-all, and read the
-      # seconds out of a run's `--durations` output rather than from a local
-      # box, which is what got this wrong the first time.
+      # What this is worth, measured rather than hoped. Each leg is a separate
+      # runner and they are not equally fast: the `Install` and model-warm
+      # steps are identical work on all four, and they vary by about 15% within
+      # one run and 10% between runs. Normalizing the test times by those two
+      # steps, the binding leg used to carry about 30 s more than an even
+      # quarter of the tier and now carries about 15-20 s more, over seven
+      # measured runs. That is the whole prize, and it is smaller than the
+      # spread: run-to-run gates were 163-179 s before and 179-198 s after, and
+      # the difference between those bands is accounted for by the same
+      # runner-speed index, not by the split. Balance this tier because an
+      # unbalanced leg wastes a runner, not because the gate will visibly move.
+      #
+      # Which pairing, and not just how many. test_compile_values.py is the
+      # volatile unit -- its torch.compile test alone has been 33, 43 and 35 s
+      # on three runs, taking the file from 37 to 51 s, while test_thermo.py
+      # sat between 25 and 37 -- so it travels with the two lightest end-to-end
+      # classes rather than with three other middle-weights. Honest caveat: with
+      # runner speed normalized out, that grouping and the obvious alternative
+      # (the whole end-to-end file on one leg, the three named files on another)
+      # both land in the same 15-20 s band, so this is a tie-break on which
+      # unit is least predictable, not a measured win over the alternative.
+      #
+      # Re-balance when a leg passes the catch-all, and read the seconds out of
+      # a run's `--durations` output rather than from a local box, which is what
+      # got this wrong the first time.
       matrix:
         include:
           # 37-51 + 42 + 31 = 110 s, and 101 s on the other measured run. The
