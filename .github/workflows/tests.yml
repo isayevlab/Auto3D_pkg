@@ -312,17 +312,24 @@ jobs:
       # measured, from the `--durations` output of the test step, not
       # apportioned.
       #
-      # So the floor on the binding leg's work is whichever of those two is
-      # larger, and the legs below sit level with it: 110 / 108 / 109 / 107 on
-      # one measured run and 101 / 74 / 105 / 82 on another. A fifth leg would
-      # divide only the remainder that is already under that floor, so it could
-      # move almost nothing off the binding leg -- and it would add a fifth
-      # runner to a gate that is `max` over all of them. Each leg is an
-      # independent draw on runner speed, and that spread is wide: the
-      # catch-all's identical selection, the same 2,295 tests, took 62 s, 107 s
-      # and 82 s on three consecutive runs. Past four, an extra leg is one more
-      # chance to draw the slow runner that sets the gate, so more shards make
-      # the expected gate worse rather than better.
+      # So nothing below four legs is worth discussing, and four is where this
+      # stops for a reason that is a trade rather than a limit. Measured over
+      # three runs and normalized for runner speed, the legs below carry
+      # 109-123 / 72-113 / 125-134 / 102-114 s: the third leg is the binding
+      # one, and it is the divisible remainder, so a fifth leg really would
+      # take roughly 20 s off it. What that 20 s buys has to be weighed against
+      # what it costs, and both are measured here. It costs a whole extra
+      # runner on every pull request. And it is inside the noise it would be
+      # trying to beat: the `Install` and model-warm steps are identical work on
+      # every leg and vary 10-15%, which on a 130 s leg is 13-20 s on its own,
+      # so the gate would not reliably show the difference. A gate that is `max`
+      # over N legs also gets one more chance to draw a slow runner with every
+      # leg added -- the catch-all's identical selection, the same 2,295 tests,
+      # has measured 62, 82, 94, 97, 98 and 107 s across six runs.
+      #
+      # Four is therefore a judgment, not an arithmetic result: the fifth leg is
+      # a real but unmeasurable ~20 s for a permanent extra runner. Revisit it
+      # if the remainder grows well clear of that band.
       #
       # What this is worth, measured rather than hoped. Each leg is a separate
       # runner and they are not equally fast: the `Install` and model-warm
@@ -351,8 +358,8 @@ jobs:
       # got this wrong the first time.
       matrix:
         include:
-          # 37-51 + 42 + 31 = 110 s, and 101 s on the other measured run. The
-          # spread is all test_compile_values.py, which is why the two lightest
+          # 111-144 s measured over three runs, 109-123 normalized. The spread
+          # is mostly test_compile_values.py, which is why the two lightest
           # end-to-end classes keep it company rather than more middle-weights.
           # test_pipeline_e2e.py used to be a leg of its own at 120 s and was
           # the binding shard of the whole run; it is split across this leg and
@@ -365,8 +372,8 @@ jobs:
               tests/test_compile_values.py
               tests/test_pipeline_e2e.py::TestInputOutputAccounting
               tests/test_pipeline_e2e.py::TestDummyAtomInput
-          # 102 s, one of the two units nothing divides, for the reason given
-          # above. Deliberately alone: it and test_pipeline_e2e.py
+          # 71-114 s measured, one of the two units nothing divides, for the
+          # reason given above. Deliberately alone: it and test_pipeline_e2e.py
           # were 53% of the tier between them, so they have to land on
           # different runners. Safe to isolate because test_auto3D.py runs every
           # pipeline test through the job_dir/isolated_input fixtures, so it
@@ -376,9 +383,10 @@ jobs:
           - shard: "2 of 4 (main and smiles2mols)"
             group: auto3d
             select: tests/test_auto3D.py
-          # 29-36 + 26 + 33 + 15 = 109 s, and 105 s on the other measured run:
-          # four units that each move by a second or two, which is what makes
-          # this the leg to put four of them on. test_worker_lifecycle.py and
+          # 126-132 s measured over three runs, 125-134 normalized, which makes
+          # this the binding leg of the four -- four units that each move by only
+          # a second or two, so it is steady rather than cheap.
+          # test_worker_lifecycle.py and
           # test_thermo.py both stage their inputs in tmp_path, so they are
           # isolable for the same reason test_auto3D.py is.
           # TestClashReliefWarning rides along at well under a second: it
