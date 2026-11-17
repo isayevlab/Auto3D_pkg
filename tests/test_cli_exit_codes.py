@@ -473,6 +473,8 @@ def test_exit_3_run_without_aimnet(monkeypatch, tmp_path):
             id="flag-over-aimnet-config",
         ),
         pytest.param("k: 1\noptimizing_engine: ANI2xt\n", [], id="config-only"),
+        pytest.param(None, ["--engine", "ANI2x"], id="ani2x-flag"),
+        pytest.param(None, ["--engine", "{nnp}"], id="custom-nnp-flag"),
     ],
 )
 def test_run_with_ani_engine_works_without_aimnet(monkeypatch, tmp_path, config_text, extra_args):
@@ -492,6 +494,12 @@ def test_run_with_ani_engine_works_without_aimnet(monkeypatch, tmp_path, config_
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\n")
+    # A custom NNP is named by path; resolution only checks that it exists,
+    # and `main` is stubbed below, so an empty file stands in for one.
+    nnp = tmp_path / "my_nnp.pt"
+    nnp.write_bytes(b"")
+    extra_args = [a.replace("{nnp}", str(nnp)) for a in extra_args]
+    expected = extra_args[-1] if extra_args else "ANI2xt"
     args = ["run", str(smi), "--no-gpu", *extra_args]
     if config_text is None:
         args += ["--k", "1"]
@@ -513,7 +521,24 @@ def test_run_with_ani_engine_works_without_aimnet(monkeypatch, tmp_path, config_
     result = runner.invoke(app, args)
 
     assert "Dependency Error" not in _flat(result.stderr), result.output
-    assert seen == ["ANI2xt"], result.output
+    assert seen == [expected], result.output
+
+
+def test_run_refuses_an_internal_parameter_name_as_a_config_key(tmp_path):
+    """A config file's keys go straight into the configuration builder as
+    keyword arguments. So a builder parameter of its own -- a
+    ``resolve_engine`` flag was one -- collides with a key of that name and
+    surfaces as a ``TypeError`` at exit 1 ("Unexpected Error"). It must be
+    refused like any other unknown key: exit 2."""
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("k: 1\noptimizing_engine: ANI2xt\nresolve_engine: false\n")
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--no-gpu"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in _flat(result.stderr)
 
 
 # --- 4: GPU error ------------------------------------------------------------
