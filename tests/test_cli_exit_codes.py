@@ -414,10 +414,18 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
 
 
 def _hide_aimnet(monkeypatch):
-    """Hide aimnet via the shared helper; see ``hide_optional_dependency``."""
+    """Hide aimnet via the shared helper; see ``hide_optional_dependency``.
+
+    Also pins the interpreter version seen by ``require_aimnet`` below
+    ``AIMNET_PYTHON_CEILING``. Above it, the error deliberately stops
+    advising ``pip install aimnet`` (``test_no_aimnet.py`` covers that
+    branch), and these tests assert the advice given everywhere else.
+    """
+    from Auto3D.engines.models import availability
     from tests.helpers_no_aimnet import hide_optional_dependency
 
     hide_optional_dependency(monkeypatch, "aimnet", reset_model_cache=True)
+    monkeypatch.setattr(availability, "_python_version", lambda: (3, 12))
 
 
 def test_exit_3_models_test_without_aimnet(monkeypatch):

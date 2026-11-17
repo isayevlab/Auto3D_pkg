@@ -50,9 +50,13 @@ class TestRequireAimnet:
         require_aimnet()  # must not raise
 
     def test_raises_dependency_error_when_missing(self, monkeypatch):
+        from Auto3D.engines.models import availability
         from Auto3D.engines.models.availability import require_aimnet
 
         hide_aimnet(monkeypatch)
+        # Pinned below the ceiling so the advice under test is the same on
+        # any interpreter the suite runs on.
+        monkeypatch.setattr(availability, "_python_version", lambda: (3, 12))
 
         with pytest.raises(DependencyError) as exc_info:
             require_aimnet()
@@ -60,6 +64,42 @@ class TestRequireAimnet:
         assert exc_info.value.dependency_name == "aimnet"
         assert "pip install aimnet" in str(exc_info.value)
         assert isinstance(exc_info.value.__cause__, ModuleNotFoundError)
+
+    def test_on_python_beyond_the_ceiling_does_not_advise_pip_install(self, monkeypatch):
+        """On Python 3.15+ aimnet cannot be installed at all, so "pip install
+        aimnet" -- the advice below the ceiling -- would send the user into a
+        resolver error. The error says why, and the hint names the ways out."""
+        from Auto3D.engines.models import availability
+        from Auto3D.engines.models.availability import require_aimnet
+
+        hide_aimnet(monkeypatch)
+        monkeypatch.setattr(availability, "_python_version", lambda: (3, 15))
+
+        with pytest.raises(DependencyError) as exc_info:
+            require_aimnet()
+
+        err = exc_info.value
+        assert err.dependency_name == "aimnet"
+        assert "Python 3.15" in str(err)
+        assert "pip install aimnet" not in str(err)
+        assert err.hint is not None
+        assert "3.11-3.14" in err.hint and "ANI2xt" in err.hint
+        assert isinstance(err.__cause__, ModuleNotFoundError)
+
+    def test_cli_hint_beyond_the_ceiling_replaces_the_install_command(self, monkeypatch):
+        from Auto3D.engines.models import availability
+        from Auto3D.engines.models.availability import require_aimnet
+        from Auto3D.presentation.cli.errors import get_error_hint
+
+        hide_aimnet(monkeypatch)
+        monkeypatch.setattr(availability, "_python_version", lambda: (3, 16))
+
+        with pytest.raises(DependencyError) as exc_info:
+            require_aimnet()
+
+        hint = get_error_hint(exc_info.value)
+        assert hint is not None and "pip install aimnet" not in hint
+        assert "Python 3.16" in str(exc_info.value)
 
     def test_broken_transitive_dep_reraises_unchanged(self, monkeypatch):
         """aimnet installed but its own dependency broken: NOT our error to
