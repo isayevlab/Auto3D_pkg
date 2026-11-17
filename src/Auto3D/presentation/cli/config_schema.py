@@ -31,7 +31,7 @@ OPTIONS_ONLY_FIELDS: dict[str, str] = {
 }
 
 
-def build_cli_config(**kwargs: Any) -> Auto3DOptions:
+def build_cli_config(*, resolve_engine: bool = True, **kwargs: Any) -> Auto3DOptions:
     """Construct an ``Auto3DOptions``, translating any failure into ``ConfigurationError``.
 
     This is the one construction path every site that builds an
@@ -82,10 +82,19 @@ def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     # in `--engine` or a config file is refused while the user is still looking
     # at their terminal, rather than inside a worker where the error is
     # swallowed. `check_valid_configuration` checks it again on the run path.
-    try:
-        resolve_engine_name(config.optimizing_engine)
-    except (ConfigurationError, ValueError) as exc:
-        raise ConfigurationError(str(exc)) from exc
+    #
+    # `resolve_engine=False` is for a *base* configuration that CLI overrides
+    # will still be merged into (`auto3d run` builds one from defaults or a
+    # config file, then applies `--engine`). Resolving the base's engine there
+    # checked an engine the user may already have overridden -- the default
+    # AIMNET -- so `--engine ANI2xt` exited 3 without aimnet, which is every
+    # conda-forge install. The merged result goes through `merge_configs`,
+    # which resolves, so the final configuration is always checked once.
+    if resolve_engine:
+        try:
+            resolve_engine_name(config.optimizing_engine)
+        except (ConfigurationError, ValueError) as exc:
+            raise ConfigurationError(str(exc)) from exc
     return config
 
 
@@ -114,7 +123,7 @@ def require_input_path(config: Auto3DOptions) -> Auto3DOptions:
     return config
 
 
-def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
+def load_yaml_config(yaml_path: Path, *, resolve_engine: bool = True) -> Auto3DOptions:
     """Load and validate configuration from a YAML file.
 
     Uses ``yaml.safe_load``, so Python-specific tags such as
@@ -123,7 +132,10 @@ def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
     Raises:
         ConfigurationError: the file is empty, is not a YAML mapping, or is
             not parseable as YAML; or the mapping fails ``Auto3DOptions``
-            validation (via ``build_cli_config``).
+            validation (via ``build_cli_config``), or -- unless
+            ``resolve_engine`` is False -- names an engine that does not
+            resolve. Pass False when CLI overrides will be merged in later
+            (see ``build_cli_config``).
     """
     try:
         with open(yaml_path) as f:
@@ -156,7 +168,7 @@ def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
         if val == "None":
             data[key] = None
 
-    return build_cli_config(**data)
+    return build_cli_config(resolve_engine=resolve_engine, **data)
 
 
 def merge_configs(base: Auto3DOptions, overrides: dict[str, Any]) -> Auto3DOptions:

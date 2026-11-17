@@ -197,3 +197,35 @@ def test_ci_and_dev_extra_install_the_same_ruff():
         f"{dev_pins!r}; both must name the same exact ruff version"
     )
     assert "==" in ci_pin, f"ruff must be pinned exactly, not ranged: {ci_pin!r}"
+
+
+def _installation_yml():
+    import yaml
+
+    return yaml.safe_load((ROOT / "installation.yml").read_text())
+
+
+def test_installation_yml_pins_auto3d_to_3_x():
+    """The conda environment file must refuse to install a pre-3.0 Auto3D.
+
+    Every release before 3.0 declares ``requires-python >=3.7`` and does not
+    need aimnet. So whenever 3.x cannot be installed (on Python 3.15,
+    nvalchemi-toolkit-ops rules out aimnet), an unpinned
+    ``Auto3D[ani,ase]`` silently resolves to 2.3.1. That release then fails on
+    ``import Auto3D`` while ``conda env create`` reports success. A floor turns
+    that into a resolver error at install time.
+    """
+    deps = _installation_yml()["dependencies"]
+    pip_deps = next(d["pip"] for d in deps if isinstance(d, dict) and "pip" in d)
+    auto3d = next(d for d in pip_deps if d.lower().startswith("auto3d"))
+    assert ">=3." in auto3d.replace(" ", ""), auto3d
+
+
+def test_installation_yml_caps_python_below_an_unsupported_version():
+    """Uncapped, conda picks the newest Python, which can outrun the pip-only
+    aimnet stack (nvalchemi-toolkit-ops requires Python <3.15). The floor
+    must match ``requires-python``."""
+    deps = _installation_yml()["dependencies"]
+    python = next(d for d in deps if isinstance(d, str) and d.startswith("python"))
+    spec = python.replace(" ", "")
+    assert ">=3.11" in spec and ",<3." in spec, python
