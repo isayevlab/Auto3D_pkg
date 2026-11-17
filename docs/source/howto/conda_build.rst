@@ -2,20 +2,19 @@ Building the conda package
 ==========================
 
 This page is for packagers. If you just want to *install* Auto3D, see
-:doc:`../installation` -- and note that from **3.1.1**, the conda-forge
+:doc:`../installation` -- and note that since **3.1.1**, the conda-forge
 package ships without the AIMNet2 engines, for the reason explained below.
 
 .. important::
 
-   **From 3.1.1, the recipe will deliberately exclude** ``aimnet``.
-   conda-forge requires every runtime dependency to exist as a conda package,
-   and ``aimnet`` does not: its own dependency ``nvalchemi-toolkit-ops`` is
-   pip-only. Rather than block the whole package on that, the updated
-   ``requirements.run`` will be ``pyproject.toml``'s ``dependencies`` with
-   ``aimnet`` removed and ``torchani`` plus ``ase`` added, so the ANI2x and
-   ANI2xt engines and the ASE thermochemistry APIs will work with no extra
-   install. AIMNet2 will be added afterward, in the same environment, with
-   ``pip install aimnet``.
+   **The recipe deliberately excludes** ``aimnet``. conda-forge requires every
+   runtime dependency to exist as a conda package, and ``aimnet`` does not:
+   its own dependency ``nvalchemi-toolkit-ops`` is pip-only. Rather than
+   block the whole package on that, ``requirements.run`` is
+   ``pyproject.toml``'s ``dependencies`` with ``aimnet`` removed and
+   ``torchani`` plus ``ase`` added, so the ANI2x and ANI2xt engines and the
+   ASE thermochemistry APIs work with no extra install. AIMNet2 is added
+   afterward, in the same environment, with ``pip install aimnet``.
 
 The recipe
 ----------
@@ -27,20 +26,17 @@ repository, not from this directory; the in-tree copy is the source of truth
 that a feedstock update is derived from, and it is intended to be updated as
 part of each release.
 
-The in-tree recipe has not yet been updated to the 3.1.1 shape described
-below -- at this commit it still matches 3.0.0: ``aimnet`` is still a
-``requirements.run`` entry, and the test phase still runs ``pip check``. The
-rest of this page describes what the 3.1.1 recipe update will carry, applied
-as part of that release.
+The feedstock's copy differs from the in-tree one in two expected ways: it
+spells the Python floor through conda-forge's ``python_min`` variable
+(`CFEP-25 <https://github.com/conda-forge/cfep/blob/main/cfep-25.md>`_), and
+it carries the feedstock's own ``recipe-maintainers`` list. Everything else --
+version, hash, run requirements, tests -- should match.
 
 Building locally
 ----------------
 
-You need ``conda-build``, and every *run* dependency the recipe declares must
-be resolvable in your channels. At this commit that still includes
-``aimnet``, so it has to come from somewhere -- a local channel, or one you
-control -- because it is not on conda-forge. From 3.1.1, the recipe drops
-``aimnet`` from ``requirements.run`` and this step goes away.
+You need ``conda-build``. Every *run* dependency the recipe declares is on
+conda-forge, so no other channel is needed.
 
 .. code:: console
 
@@ -48,16 +44,14 @@ control -- because it is not on conda-forge. From 3.1.1, the recipe drops
    conda build conda-recipe/ -c conda-forge
 
 The build runs the recipe's test phase at the end: it imports ``Auto3D``,
-runs ``auto3d --help`` and ``auto3d models list``, and -- at this commit --
-runs ``pip check``. All four are deliberately offline -- conda-forge's test
-phase has no network access, so a test that downloaded a model would pass
-locally and fail there.
+and runs ``auto3d --help`` and ``auto3d models list``. All three are
+deliberately offline -- conda-forge's test phase has no network access, so a
+test that downloaded a model would pass locally and fail there.
 
-From 3.1.1, ``pip check`` drops out of the test phase. The package's own pip
-metadata declares ``aimnet`` a required dependency -- true for the pip
-install -- but the updated conda package deliberately does not install it, so
-``pip check`` would flag a missing requirement that is expected, not a bug.
-Leaving it in would turn an intentional gap into permanent build noise.
+The test phase does not run ``pip check``. The package's own pip metadata
+declares ``aimnet`` a required dependency -- true for the pip install -- but
+the conda package deliberately does not install it, so ``pip check`` would
+flag a missing requirement that is expected, not a bug.
 
 To build from your working tree instead of the published sdist, replace the
 ``source:`` block with:
@@ -130,14 +124,20 @@ Updating the recipe for a new release
       print("in the recipe but not pyproject:", sorted(mapped - pypi) or "none")
       PY
 
-   At this commit the script reports no mismatches -- the recipe still
-   mirrors ``pyproject.toml`` exactly. Once the 3.1.1 update above lands,
-   expect two mismatches every run, both intentional: ``aimnet`` will show up
-   under "in pyproject but not the recipe" (it is deliberately excluded, see
-   above), and ``torchani``/``ase`` will show up under "in the recipe but not
-   pyproject" (optional pip extras upstream, but unconditional conda run
-   dependencies from 3.1.1, for the same reason). Anything else in either
-   list is a real gap to reconcile.
+   Expect the same two lines every run, both intentional: ``aimnet`` under
+   "in pyproject but not the recipe" (it is deliberately excluded, see
+   above), and ``ase``/``torchani`` under "in the recipe but not pyproject"
+   (optional pip extras upstream, but unconditional conda run dependencies,
+   for the same reason). Anything else in either list is a real gap to
+   reconcile.
+
+4. Open the feedstock update as a pull request **from a fork** of
+   ``conda-forge/auto3d-feedstock``, never from a branch pushed to the
+   feedstock itself. The feedstock's CI uploads to the conda-forge channel
+   on any push to the feedstock repository, not only on a merge to
+   ``main``, so a branch pushed there publishes before review. Copy the
+   in-tree recipe over the feedstock's, keeping the two feedstock-only
+   differences described under `The recipe`_.
 
 Why the recipe is shaped the way it is
 --------------------------------------
@@ -152,11 +152,11 @@ The test phase imports only the top-level package
    modules), so this stays cheap. Importing a submodule would pull the whole
    dependency tree into the test phase for no additional signal.
 
-From 3.1.1, ``torchani`` and ``ase`` become run dependencies; ``aimnet`` does not
+``torchani`` and ``ase`` are run dependencies; ``aimnet`` is not
    Without ``aimnet``, a plain ``conda install`` still needs to leave a user
    with a working optimization engine and thermochemistry, so ``torchani``
    (the ANI2x/ANI2xt engines) and ``ase`` (thermochemistry and geometry
-   optimization) -- both already on conda-forge -- become unconditional run
+   optimization) -- both on conda-forge -- are unconditional run
    dependencies of the recipe, even though they remain optional pip extras
    upstream. ``aimnet`` is the one dependency left off, for the reason given
    at the top of this page.
@@ -164,10 +164,10 @@ From 3.1.1, ``torchani`` and ``ase`` become run dependencies; ``aimnet`` does no
 Getting AIMNet2 onto conda-forge
 ---------------------------------
 
-From 3.1.1 this no longer blocks Auto3D's own feedstock: the recipe will not
-depend on ``aimnet``, so the existing ``auto3d`` feedstock can be updated
-from ``conda-recipe/meta.yaml`` the same way as any other release -- no
-upstream packaging required.
+This does not block Auto3D's own feedstock: the recipe does not depend on
+``aimnet``, so the ``auto3d`` feedstock is updated from
+``conda-recipe/meta.yaml`` the same way as any other release -- no upstream
+packaging required.
 
 Upstream packaging is still the path to a fully conda-native AIMNet2 install,
 though, and the order matters, because ``aimnet`` depends on the first one:
@@ -180,12 +180,4 @@ someone else's package is normal on conda-forge, but it means committing to
 maintain it -- so it is worth asking the ``aimnet`` maintainers whether they
 would rather own it. Until then, ``pip install aimnet`` inside the conda
 environment is not a workaround: it is how the recipe is designed to hand off
-that one dependency, from 3.1.1 on.
-
-The 2.3.0 gap is separate
--------------------------
-
-conda-forge ships 2.3.0 while PyPI's release before 3.0.0 was 2.3.1. That gap
-predates all of the above and is **not** blocked by ``aimnet``, because 2.3.x did
-not depend on it. If a conda user needs 2.3.1 specifically, that is a
-version-and-hash bump on the existing feedstock and can be done independently.
+that one dependency.

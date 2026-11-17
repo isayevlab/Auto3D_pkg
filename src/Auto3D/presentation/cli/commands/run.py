@@ -12,7 +12,7 @@ from Auto3D.foundation.config import require_selector
 from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.foundation.utils.logging_config import configure_logging
 from Auto3D.presentation.cli.config_schema import (
-    build_cli_config,
+    build_cli_config_unresolved,
     load_yaml_config,
     merge_configs,
     require_input_path,
@@ -217,12 +217,18 @@ def execute_run(
                 raise InputValidationError(f"Input file not found: {input_file}")
 
             # Build configuration
+            # The base is validated but its engine is not resolved yet:
+            # `--engine` may still replace it, and resolving the default
+            # (AIMNET) here made `--engine ANI2xt` fail without aimnet.
+            # merge_configs below resolves the engine the run will use.
             if config_file:
-                config = load_yaml_config(config_file)
-                config = build_cli_config(path=input_file, **config.model_dump(exclude={"path"}))
+                config = load_yaml_config(config_file, resolve_engine=False)
+                config = build_cli_config_unresolved(
+                    path=input_file, **config.model_dump(exclude={"path"})
+                )
             else:
                 # Pydantic provides defaults for all fields except path
-                config = build_cli_config(path=input_file)  # type: ignore[call-arg]
+                config = build_cli_config_unresolved(path=input_file)  # type: ignore[call-arg]
 
             # Apply CLI overrides, one per RunOptions field (renamed through
             # _FIELD_TO_CONFIG_KEY where the flag spelling and the

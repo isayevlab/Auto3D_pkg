@@ -31,8 +31,11 @@ OPTIONS_ONLY_FIELDS: dict[str, str] = {
 }
 
 
-def build_cli_config(**kwargs: Any) -> Auto3DOptions:
+def build_cli_config_unresolved(**kwargs: Any) -> Auto3DOptions:
     """Construct an ``Auto3DOptions``, translating any failure into ``ConfigurationError``.
+
+    Validates every value but does not resolve the engine name; use
+    ``build_cli_config`` unless overrides are still to be merged in.
 
     This is the one construction path every site that builds an
     ``Auto3DOptions`` from external data (a YAML file, merged CLI overrides,
@@ -61,7 +64,7 @@ def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     init" hint like every other one.
     """
     try:
-        config = Auto3DOptions(**kwargs)
+        return Auto3DOptions(**kwargs)
     except ValidationError as exc:
         raise ConfigurationError(str(exc)) from exc
     except (TypeError, ValueError) as exc:
@@ -69,6 +72,25 @@ def build_cli_config(**kwargs: Any) -> Auto3DOptions:
         # than by pydantic, so it carries no field name -- say which layer
         # rejected it instead of surfacing a bare "int() argument must be...".
         raise ConfigurationError(f"Invalid configuration value: {exc}") from exc
+
+
+def build_cli_config(**kwargs: Any) -> Auto3DOptions:
+    """``build_cli_config_unresolved``, then resolve the engine name.
+
+    The configuration a run will actually use goes through here. A *base*
+    that CLI overrides will still be merged into does not: ``auto3d run``
+    builds one from the defaults or a config file, then applies ``--engine``.
+    Resolving the base's engine checked an engine the user may already have
+    overridden -- the default AIMNET -- so ``--engine ANI2xt`` exited 3
+    without aimnet, which is every conda-forge install. ``merge_configs``
+    goes through here, so the merged configuration is resolved exactly once.
+
+    This is a separate function rather than a keyword flag on purpose: every
+    keyword here comes from user data (``load_yaml_config`` passes the YAML
+    mapping straight through), so a flag in the same namespace would let a
+    config-file key collide with it.
+    """
+    config = build_cli_config_unresolved(**kwargs)
 
     # Engine-name resolution happens HERE, not on the model, and the reason is
     # not only layering. `resolve_engine_name` lives in `Auto3D.engines.models`, so a
@@ -114,7 +136,7 @@ def require_input_path(config: Auto3DOptions) -> Auto3DOptions:
     return config
 
 
-def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
+def load_yaml_config(yaml_path: Path, *, resolve_engine: bool = True) -> Auto3DOptions:
     """Load and validate configuration from a YAML file.
 
     Uses ``yaml.safe_load``, so Python-specific tags such as
@@ -123,7 +145,11 @@ def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
     Raises:
         ConfigurationError: the file is empty, is not a YAML mapping, or is
             not parseable as YAML; or the mapping fails ``Auto3DOptions``
-            validation (via ``build_cli_config``).
+            validation (via ``build_cli_config``), or -- unless
+            ``resolve_engine`` is False -- names an engine that does not
+            resolve. Pass False when CLI overrides will be merged in later
+            (see ``build_cli_config``); ``resolve_engine`` is a parameter of
+            this function only, never forwarded with the file's keys.
     """
     try:
         with open(yaml_path) as f:
@@ -156,7 +182,8 @@ def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
         if val == "None":
             data[key] = None
 
-    return build_cli_config(**data)
+    build = build_cli_config if resolve_engine else build_cli_config_unresolved
+    return build(**data)
 
 
 def merge_configs(base: Auto3DOptions, overrides: dict[str, Any]) -> Auto3DOptions:

@@ -239,6 +239,12 @@ jobs:
         run: pytest tests/ --collect-only -q
       - name: No-aimnet behavior tests
         run: pytest tests/test_no_aimnet.py -q
+      - name: The CLI runs ANI engines without aimnet, and refuses AIMNET with exit 3
+        # test_no_aimnet.py checks engine resolution in isolation. `auto3d run
+        # --engine ANI2xt` still exited 3 from 3.1.1 to 3.2.3, because the CLI
+        # resolved its default engine before applying the flag. These tests
+        # drive the command itself, here with aimnet actually absent.
+        run: pytest tests/test_cli_exit_codes.py -q -k "without_aimnet"
       - name: ANI2xt still constructs (bundled weights, no download)
         run: pytest "tests/test_model_factory.py" -q -k "ani2xt"
 

@@ -35,7 +35,7 @@ CUDA-enabled PyTorch build first. AIMNet2 weights download to `~/.cache/aimnet`
 on first use, so the first run needs network access.
 
 <details>
-<summary><b>Using conda?</b> Install Auto3D itself with pip, even inside a conda env.</summary>
+<summary><b>Using conda?</b> Install from conda-forge, then add AIMNet2 with pip.</summary>
 
 Starting with **3.1.1**, the conda-forge package no longer requires `aimnet`
 (which cannot be packaged for conda-forge — its dependency
@@ -44,7 +44,7 @@ and ANI2xt engines and ASE thermochemistry working out of the box; add the
 default AIMNet2 engine with one pip command inside the environment:
 
 ```bash
-conda install -c conda-forge auto3d   # 3.2.0 on conda-forge
+conda install -c conda-forge auto3d
 pip install aimnet                    # adds the AIMNet2 engines
 ```
 

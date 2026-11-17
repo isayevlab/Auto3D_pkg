@@ -462,6 +462,85 @@ def test_exit_3_run_without_aimnet(monkeypatch, tmp_path):
     assert "Install: pip install aimnet" in err
 
 
+@pytest.mark.parametrize(
+    ("config_text", "extra_args"),
+    [
+        pytest.param(None, ["--engine", "ANI2xt"], id="flag-only"),
+        pytest.param("k: 1\n", ["--engine", "ANI2xt"], id="flag-over-config-without-engine"),
+        pytest.param(
+            "k: 1\noptimizing_engine: AIMNET\n",
+            ["--engine", "ANI2xt"],
+            id="flag-over-aimnet-config",
+        ),
+        pytest.param("k: 1\noptimizing_engine: ANI2xt\n", [], id="config-only"),
+        pytest.param(None, ["--engine", "ANI2x"], id="ani2x-flag"),
+        pytest.param(None, ["--engine", "{nnp}"], id="custom-nnp-flag"),
+    ],
+)
+def test_run_with_ani_engine_works_without_aimnet(monkeypatch, tmp_path, config_text, extra_args):
+    """The other half of the conda-forge promise: without aimnet, choosing an
+    ANI engine must *work*, not exit 3.
+
+    It did not, from 3.1.1 through 3.2.3: ``execute_run`` built a base
+    configuration from defaults (or from the config file) and resolved its
+    engine -- ``AIMNET`` unless the file said otherwise -- before merging
+    ``--engine``, so the aimnet check fired on an engine the user had already
+    overridden. Every case where the engine named on the final configuration
+    is ANI2xt must reach ``main`` with ANI2xt, whatever the base said.
+    """
+    import Auto3D.entry.auto3D as a3d
+
+    _hide_aimnet(monkeypatch)
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+    # A custom NNP is named by path; resolution only checks that it exists,
+    # and `main` is stubbed below, so an empty file stands in for one.
+    nnp = tmp_path / "my_nnp.pt"
+    nnp.write_bytes(b"")
+    extra_args = [a.replace("{nnp}", str(nnp)) for a in extra_args]
+    expected = extra_args[-1] if extra_args else "ANI2xt"
+    args = ["run", str(smi), "--no-gpu", *extra_args]
+    if config_text is None:
+        args += ["--k", "1"]
+    else:
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text(config_text)
+        args += ["-c", str(cfg)]
+
+    seen: list[str] = []
+
+    def fake_main(options, progress_callback=None, **kwargs):
+        seen.append(options.optimizing_engine)
+        out = tmp_path / "out.sdf"
+        out.write_text("")
+        return str(out)
+
+    monkeypatch.setattr(a3d, "main", fake_main)
+
+    result = runner.invoke(app, args)
+
+    assert "Dependency Error" not in _flat(result.stderr), result.output
+    assert seen == [expected], result.output
+
+
+def test_run_refuses_an_internal_parameter_name_as_a_config_key(tmp_path):
+    """A config file's keys go straight into the configuration builder as
+    keyword arguments. So a builder parameter of its own -- a
+    ``resolve_engine`` flag was one -- collides with a key of that name and
+    surfaces as a ``TypeError`` at exit 1 ("Unexpected Error"). It must be
+    refused like any other unknown key: exit 2."""
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("k: 1\noptimizing_engine: ANI2xt\nresolve_engine: false\n")
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--no-gpu"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in _flat(result.stderr)
+
+
 # --- 4: GPU error ------------------------------------------------------------
 #
 # Two different guards produce exit 4, and both must keep working on both kinds
@@ -826,8 +905,9 @@ def test_exit_130_ctrl_c_reports_how_far_the_run_got(tmp_path, monkeypatch):
 
     monkeypatch.setattr(a3d, "main", interrupted_main)
 
-    # ANI2xt short-circuits engine resolution, so this test never imports
-    # `aimnet`/`warp` for a run that is stubbed out anyway.
+    # ANI2xt short-circuits engine resolution (once --engine is merged; the
+    # base configuration's default engine is not resolved), so this test never
+    # imports `aimnet`/`warp` for a run that is stubbed out anyway.
     result = runner.invoke(
         app,
         ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt", "--job-name", "kestrel"],

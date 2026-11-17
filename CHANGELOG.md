@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `auto3d run --engine ANI2xt` (or `ANI2x`, or a custom NNP path) no longer
+  exits 3 with "AIMNet optimizing engines require the 'aimnet' package" when
+  `aimnet` is not installed. That covers every conda-forge install, which
+  omits `aimnet` by design. The CLI built its base configuration from the
+  defaults, or from the `-c` file, and resolved that configuration's engine
+  before merging `--engine`. So it checked the default `AIMNET` that the user
+  had already overridden. The base is now validated without resolving its
+  engine, and the engine is resolved once, after the overrides are merged.
+  Present since 3.1.1. A config file naming the ANI engine, and the Python
+  API, were never affected.
+- `installation.yml` no longer installs Auto3D 2.3.1. It asked for
+  `python>=3.11` with no cap, so conda now picks Python 3.15, where `aimnet`
+  cannot install (`nvalchemi-toolkit-ops` requires Python <3.15). pip then
+  fell back to 2.3.1, the newest release that needs no `aimnet` and declares
+  `requires-python >=3.7`. That release fails at `import Auto3D`, and
+  `conda env create` still reported success. The file now caps Python below
+  3.15. Its `Auto3D[ani,ase]>=3.0` floor turns any future fallback into a
+  resolver error. It also drops the unused `pytorch` channel.
+
+### Documentation
+- `howto/conda_build.rst` describes the recipe as it is rather than as the
+  3.1.1 change would make it. It drops the stale `pip check` and "2.3.0 gap"
+  passages, records the two expected differences between the in-tree recipe
+  and the feedstock's copy, and adds a release step: open the feedstock pull
+  request from a fork, because a branch pushed to the feedstock itself
+  uploads before review.
+- `README.md` and `installation.rst` no longer name a conda-forge version,
+  which went stale three releases running.
+
 ## [3.2.3] - 2026-10-22
 
 ### Fixed

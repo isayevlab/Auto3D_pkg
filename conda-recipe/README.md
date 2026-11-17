@@ -9,9 +9,9 @@ from this directory.
 [`docs/source/howto/conda_build.rst`](../docs/source/howto/conda_build.rst)**
 (rendered at
 [auto3d.readthedocs.io/en/latest/howto/conda_build.html](https://auto3d.readthedocs.io/en/latest/howto/conda_build.html)).
-It covers building locally, updating the recipe for a new release, why the recipe
-is shaped the way it is, and what has to happen upstream before conda-forge can
-ship the current version.
+It covers building locally, updating the recipe and the conda-forge feedstock for
+a new release, why the recipe is shaped the way it is, and what upstream packaging
+a fully conda-native AIMNet2 install would need.
 
 That page is the only copy on purpose. An earlier draft of this file explained
 the same things again — the blocked dependencies, where to get `sha256`, the two
