@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.4] - 2026-11-17
+
 ### Fixed
 - `auto3d run --engine ANI2xt` (or `ANI2x`, or a custom NNP path) no longer
   exits 3 with "AIMNet optimizing engines require the 'aimnet' package" when
