@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `conda env create` still reported success. The file now caps Python below
   3.15. Its `Auto3D[ani,ase]>=3.0` floor turns any future fallback into a
   resolver error. It also drops the unused `pytorch` channel.
+- `pip install auto3d` on Python 3.15 now installs current Auto3D instead of
+  silently falling back to 2.3.1, which is broken there. The `aimnet`
+  requirement is now `aimnet>=0.2; python_version < "3.15"`, because
+  `aimnet`'s dependency `nvalchemi-toolkit-ops` does not support 3.15.
+  Previously that made every 3.x release uninstallable on 3.15, and pip
+  chose the newest release that did not need `aimnet`. On 3.15, requesting
+  an AIMNet engine now says that `aimnet` cannot be installed on that Python,
+  and suggests Python 3.11-3.14 or an ANI engine, rather than recommending
+  `pip install aimnet`. That command would fail there. The cutoff lives in
+  `Auto3D.engines.models.availability.AIMNET_PYTHON_CEILING`, and a test
+  keeps it equal to the marker in `pyproject.toml`. The ANI engines on 3.15
+  still depend on torchani's own PyTorch cap (see the installation guide).
+  A Python version beyond 3.15 that a dependency does not support can still
+  make pip fall back to a 2.x release. Only yanking the pre-3.0 releases on
+  PyPI closes that.
 
 ### Documentation
 - `howto/conda_build.rst` describes the recipe as it is rather than as the

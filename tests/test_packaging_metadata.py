@@ -14,6 +14,27 @@ def test_aimnet_is_core_dependency():
     assert any(d.replace(" ", "").lower().startswith("aimnet>=") for d in deps), deps
 
 
+def test_aimnet_marker_matches_the_code_s_ceiling():
+    """The ``aimnet`` requirement is conditional on ``python_version <
+    "3.15"`` so that pip installs current Auto3D on 3.15 (without AIMNet2)
+    rather than falling back to Auto3D 2.3.1. ``require_aimnet`` words its
+    error from ``AIMNET_PYTHON_CEILING``. The two describe one fact, so they
+    must move together.
+    """
+    from packaging.requirements import Requirement
+
+    from Auto3D.engines.models.availability import AIMNET_PYTHON_CEILING
+
+    deps = [Requirement(d) for d in _pyproject()["project"]["dependencies"]]
+    aimnet = next(r for r in deps if r.name == "aimnet")
+    assert aimnet.marker is not None, "aimnet must be conditional on the Python version"
+    major, minor = AIMNET_PYTHON_CEILING
+    below = f"{major}.{minor - 1}"
+    at = f"{major}.{minor}"
+    assert aimnet.marker.evaluate({"python_version": below}), str(aimnet.marker)
+    assert not aimnet.marker.evaluate({"python_version": at}), str(aimnet.marker)
+
+
 def test_torch_floor_is_2_8_plus():
     deps = _pyproject()["project"]["dependencies"]
     torch_dep = next(d for d in deps if d.lower().startswith("torch"))

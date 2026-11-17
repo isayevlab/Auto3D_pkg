@@ -9,9 +9,20 @@ Minimum Dependencies Installation
    the isomer engine)
 3. `PyTorch <https://pytorch.org/get-started/locally/>`__ >= 2.8 (for
    the optimization engine)
-4. ``aimnet`` (a core dependency, installed automatically) serves the AIMNet2
-   models; the weights download on first use to ``~/.cache/aimnet`` (override
-   with ``AIMNET_CACHE_DIR``)
+4. ``aimnet`` (a core dependency, installed automatically on Python 3.11-3.14)
+   serves the AIMNet2 models; the weights download on first use to
+   ``~/.cache/aimnet`` (override with ``AIMNET_CACHE_DIR``)
+
+.. note::
+
+   **On Python 3.15, pip installs Auto3D without AIMNet2.** ``aimnet``'s
+   dependency ``nvalchemi-toolkit-ops`` does not support 3.15 yet, so the
+   requirement only applies below 3.15, and requesting an AIMNet engine
+   there explains this and exits 3. The ANI engines need ``torchani``, whose
+   current releases cap PyTorch at 2.13, a version with no Python 3.15 build
+   on PyPI. ``pip install "Auto3D[ani]" --extra-index-url
+   https://download.pytorch.org/whl/cpu`` resolves through PyTorch's CPU
+   wheels. For the full engine set, use Python 3.11-3.14.
 
 If you have an environment with the above dependencies, Auto3D can be
 installed by

@@ -2,9 +2,11 @@ name: auto3D
 channels:
   - conda-forge
 dependencies:
-  # Capped below 3.15 because aimnet's dependency nvalchemi-toolkit-ops
-  # declares requires-python <3.15. Uncapped, conda picks the newest Python
-  # and pip cannot install aimnet there. Raise the cap once that lifts.
+  # Capped below 3.15 so the environment gets AIMNet2. aimnet's dependency
+  # nvalchemi-toolkit-ops declares requires-python <3.15, so from 3.2.4 pip
+  # installs Auto3D on 3.15 without aimnet. Uncapped, conda picks the newest
+  # Python. Raise the cap together with AIMNET_PYTHON_CEILING
+  # (engines/models/availability.py) once upstream lifts its cap.
   - python>=3.11,<3.15
   - pip
   - pip:
