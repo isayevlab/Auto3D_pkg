@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Install commands in the README, installation guide and quickstart now read
+  `pip install "Auto3D>=3.0"`. Pre-3.0 releases declare `requires-python >=3.7`
+  and no torch or RDKit dependency, so on a Python that 3.x does not serve
+  (3.10 and older, or one PyTorch has no wheels for yet), a bare
+  `pip install Auto3D` resolved to 2.3.1, which does not run. With the floor,
+  pip reports the real problem instead.
+
 ## [3.2.4] - 2026-11-17
 
 ### Fixed
