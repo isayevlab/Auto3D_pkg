@@ -14,7 +14,7 @@ stereoisomers, embeds and optimizes them with a neural network potential
 in one command, or one function call.
 
 ```bash
-pip install Auto3D
+pip install "Auto3D>=3.0"
 auto3d run molecules.smi --k=1
 ```
 
@@ -26,8 +26,8 @@ conformer per input molecule, each carrying its energy.
 ## Installation
 
 ```bash
-pip install Auto3D                # core: AIMNet2 engines
-pip install "Auto3D[ani,ase]"     # + torchani (ANI2x/ANI2xt) and ase (thermochemistry)
+pip install "Auto3D>=3.0"              # core: AIMNet2 engines
+pip install "Auto3D[ani,ase]>=3.0"     # + torchani (ANI2x/ANI2xt) and ase (thermochemistry)
 ```
 
 Requires **Python ≥ 3.11** and **PyTorch ≥ 2.8**. For GPU acceleration, install a

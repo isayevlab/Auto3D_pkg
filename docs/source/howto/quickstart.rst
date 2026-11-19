@@ -10,13 +10,13 @@ Installation
 
 .. code:: console
 
-   pip install Auto3D
+   pip install "Auto3D>=3.0"
 
 **Option 2: uv (fastest)**
 
 .. code:: console
 
-   uv pip install Auto3D
+   uv pip install "Auto3D>=3.0"
 
 **Option 3: conda environment (Auto3D itself still installed by pip)**
 

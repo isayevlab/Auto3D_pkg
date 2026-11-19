@@ -30,15 +30,22 @@ installed by
 .. code:: console
 
    # Using pip
-   pip install Auto3D
+   pip install "Auto3D>=3.0"
 
    # Using uv (faster)
-   uv pip install Auto3D
+   uv pip install "Auto3D>=3.0"
+
+Keep the ``>=3.0``. Every release before 3.0 declares support for Python
+3.7 and up and depends on none of torch, RDKit or AIMNet2, so on a Python
+version Auto3D 3.x does not serve (3.10 and older, or one too new for
+PyTorch's wheels), a bare ``pip install Auto3D`` installs the old 2.x
+release instead of failing, and that release does not run. With the floor,
+pip stops with an error that names the missing requirement.
 
 Otherwise, you can create an environment and install Auto3D. In a
 terminal, the following code creates an environment named ``auto3D``.
 Note that ``installation.yml`` already runs ``pip install
-"Auto3D[ani,ase]"`` inside the new environment, so the optional
+"Auto3D[ani,ase]>=3.0"`` inside the new environment, so the optional
 ``torchani`` and ``ase`` steps below are done for you on this route.
 
 .. code:: console
@@ -83,7 +90,7 @@ installed by:
    conda install -c conda-forge torchani
 
    # or, equivalently, the pip extra
-   pip install "Auto3D[ani]"
+   pip install "Auto3D[ani]>=3.0"
 
 One additional isomer engine is available: OpenEye toolkit. It's a
 commercial software from `OpenEye
@@ -101,7 +108,7 @@ enthalpy, entropy, geometry optimization) with Auto3D,
 .. code:: console
 
    # The pip extra is the reliable route: it pins ase>=3.23.0.
-   pip install "Auto3D[ase]"
+   pip install "Auto3D[ase]>=3.0"
 
    # conda works too, but pin the floor yourself:
    conda install -c conda-forge "ase>=3.23.0"
